@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]>=2.0
+asyncpg
+motor
+pydantic-settings
+email-validator
+python-multipart
+alembic
+geoalchemy2
+httpx
+passlib
+bcrypt==4.0.1
+python-jose[cryptography]
+shapely

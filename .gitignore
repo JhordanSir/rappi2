@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+alembic/
+
+# Virtualenv
+.venv/
+venv/
+env/
+ENV/
+
+# Entornos
+.env
+.env.*
+!.env.example
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker / Volúmenes locales
+docker/volumes/
+postgres_data/
+mongo_data/
+
+# Logs
+*.log
+logs/
+
+# Alembic (mantener migraciones versionadas)
+# pero ignorar caches locales
+alembic/__pycache__/
