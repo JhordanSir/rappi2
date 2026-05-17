@@ -8,7 +8,8 @@ from core.database import get_db
 from core.security import verify_password, create_access_token, get_password_hash
 from core.config import settings
 from models.users import Usuario
-from schemas.users import Token, UsuarioCreate, UsuarioResponse
+from schemas.users import Token, UsuarioCreate, UsuarioResponse, UsuarioUpdate
+from api.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -46,3 +47,36 @@ async def register_user(user_in: UsuarioCreate, db: AsyncSession = Depends(get_d
     await db.commit()
     await db.refresh(new_user)
     return new_user
+
+@router.get("/users", response_model=list[UsuarioResponse])
+async def get_users(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    result = await db.execute(select(Usuario).where(Usuario.is_active == True).offset(skip).limit(limit))
+    return result.scalars().all()
+
+@router.patch("/users/{user_id}", response_model=UsuarioResponse)
+async def update_user(user_id: int, user_update: UsuarioUpdate, db: AsyncSession = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    result = await db.execute(select(Usuario).where(Usuario.id == user_id, Usuario.is_active == True))
+    db_user = result.scalar_one_or_none()
+    
+    if not db_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    update_data = user_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_user, key, value)
+        
+    await db.commit()
+    await db.refresh(db_user)
+    return db_user
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    result = await db.execute(select(Usuario).where(Usuario.id == user_id))
+    db_user = result.scalar_one_or_none()
+    
+    if not db_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    db_user.is_active = False
+    await db.commit()
+    return None

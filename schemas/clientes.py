@@ -29,6 +29,12 @@ class ClienteBase(BaseModel):
 class ClienteCreate(ClienteBase):
     pass
 
+class ClienteUpdate(BaseModel):
+    nombre: Optional[str] = None
+    email: Optional[EmailStr] = None
+    telefono: Optional[str] = None
+    atencion_nam: Optional[str] = None
+
 class ClienteResponse(ClienteBase):
     id: int
     is_active: bool
