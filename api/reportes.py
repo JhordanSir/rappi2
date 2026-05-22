@@ -7,7 +7,7 @@ from sqlalchemy import case, distinct, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from api.dependencies import require_permiso
+from api.dependencies import get_mongo_db, require_permiso
 from core.database import get_db
 from models.asignaciones import Asignacion
 from models.clientes import Cliente
@@ -16,6 +16,12 @@ from models.incidencias import Incidencia
 from models.ordenes import Factura, Orden, Pago
 from models.usuarios import Usuario
 from models.vehiculos import Vehiculo
+from services.mongo import (
+    evidencias_service,
+    geocerca_service,
+    notificaciones_service,
+    tracking_service,
+)
 
 router = APIRouter(prefix="/reportes", tags=["reportes"])
 
@@ -323,4 +329,253 @@ async def resumen_cliente(
         "ordenes_por_estado": por_estado,
         "total_recaudado": float(recaudado),
         "total_facturado": float(facturado),
+    }
+
+
+@router.get("/operativo")
+async def reporte_operativo(
+    ventana_minutos: int = Query(5, ge=1, le=60, description="Ventana para considerar un conductor 'online'"),
+    db: AsyncSession = Depends(get_db),
+    mongo_db=Depends(get_mongo_db),
+    _: object = Depends(require_permiso("reportes", "read")),
+) -> dict[str, Any]:
+    """KPIs operativos cruzando Postgres (asignaciones/conductores) y Mongo (tracking/geocercas)."""
+    asignaciones_activas = (
+        await db.execute(
+            select(func.count(Asignacion.id)).where(Asignacion.estado == "EnCurso")
+        )
+    ).scalar() or 0
+
+    conductores_ocupados = (
+        await db.execute(
+            select(func.count(Conductor.id)).where(
+                Conductor.activo == True, Conductor.disponibilidad == "Ocupado"
+            )
+        )
+    ).scalar() or 0
+
+    desde = datetime.now(timezone.utc) - timedelta(minutes=ventana_minutos)
+    tracking_coll = mongo_db[tracking_service.COLLECTION]
+    online_pipeline = [
+        {"$match": {"timestamp": {"$gte": desde}}},
+        {"$group": {"_id": "$conductor_id"}},
+        {"$count": "n"},
+    ]
+    online_rows = [d async for d in tracking_coll.aggregate(online_pipeline)]
+    conductores_online = online_rows[0]["n"] if online_rows else 0
+
+    asign_activas_ids = [
+        row[0]
+        for row in (
+            await db.execute(
+                select(Asignacion.id).where(Asignacion.estado == "EnCurso")
+            )
+        ).all()
+    ]
+    sin_tracking = 0
+    if asign_activas_ids:
+        con_tracking_pipeline = [
+            {"$match": {"asignacion_id": {"$in": asign_activas_ids}, "timestamp": {"$gte": desde}}},
+            {"$group": {"_id": "$asignacion_id"}},
+        ]
+        con_tracking = {d["_id"] async for d in tracking_coll.aggregate(con_tracking_pipeline)}
+        sin_tracking = len(asign_activas_ids) - len(con_tracking)
+
+    inicio_dia = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    km_pipeline = [
+        {"$match": {"timestamp": {"$gte": inicio_dia}}},
+        {"$sort": {"asignacion_id": 1, "timestamp": 1}},
+        {
+            "$group": {
+                "_id": "$asignacion_id",
+                "pings": {"$sum": 1},
+            }
+        },
+        {"$count": "asignaciones_con_ping_hoy"},
+    ]
+    km_rows = [d async for d in tracking_coll.aggregate(km_pipeline)]
+    asignaciones_con_ping_hoy = km_rows[0]["asignaciones_con_ping_hoy"] if km_rows else 0
+
+    geocercas_activas = await mongo_db[geocerca_service.COLLECTION].count_documents({"activa": True})
+
+    incidencias_24h = (
+        await db.execute(
+            select(func.count(Incidencia.id)).where(
+                Incidencia.fecha >= datetime.now(timezone.utc) - timedelta(hours=24)
+            )
+        )
+    ).scalar() or 0
+
+    return {
+        "ventana_minutos": ventana_minutos,
+        "asignaciones_en_curso": asignaciones_activas,
+        "conductores_ocupados_postgres": conductores_ocupados,
+        "conductores_online_mongo": conductores_online,
+        "asignaciones_activas_sin_tracking": sin_tracking,
+        "asignaciones_con_ping_hoy": asignaciones_con_ping_hoy,
+        "geocercas_activas": geocercas_activas,
+        "incidencias_ultimas_24h": incidencias_24h,
+    }
+
+
+@router.get("/asignacion/{asignacion_id}/completo")
+async def resumen_asignacion(
+    asignacion_id: int,
+    db: AsyncSession = Depends(get_db),
+    mongo_db=Depends(get_mongo_db),
+    _: object = Depends(require_permiso("reportes", "read")),
+) -> dict[str, Any]:
+    """Vista 360 cruzando Postgres (asignacion + incidencias) y Mongo (tracking + evidencias + notificaciones)."""
+    from fastapi import HTTPException
+
+    asignacion = await db.get(Asignacion, asignacion_id)
+    if asignacion is None:
+        raise HTTPException(status_code=404, detail="Asignacion no encontrada")
+
+    incidencias_rows = (
+        await db.execute(
+            select(Incidencia.severidad, func.count(Incidencia.id))
+            .where(Incidencia.asignacion_id == asignacion_id)
+            .group_by(Incidencia.severidad)
+        )
+    ).all()
+    incidencias_por_severidad = {int(s): n for s, n in incidencias_rows}
+    incidencias_total = sum(incidencias_por_severidad.values())
+
+    tracking_stats = await tracking_service.estadisticas_asignacion(mongo_db, asignacion_id)
+
+    incidencias_ids = [
+        row[0]
+        for row in (
+            await db.execute(
+                select(Incidencia.id).where(Incidencia.asignacion_id == asignacion_id)
+            )
+        ).all()
+    ]
+    evidencias_total = 0
+    evidencias_por_tipo: dict[str, int] = {}
+    if incidencias_ids:
+        ev_pipeline = [
+            {"$match": {"incidencia_id": {"$in": incidencias_ids}}},
+            {"$group": {"_id": "$tipo", "n": {"$sum": 1}}},
+        ]
+        async for d in mongo_db[evidencias_service.COLLECTION].aggregate(ev_pipeline):
+            evidencias_por_tipo[d["_id"]] = d["n"]
+            evidencias_total += d["n"]
+
+    conductor = await db.get(Conductor, asignacion.conductor_id)
+    notificaciones_conductor = await mongo_db[notificaciones_service.COLLECTION].count_documents(
+        {"destinatario_tipo": "usuario", "destinatario_id": conductor.usuario_id}
+    )
+
+    return {
+        "asignacion": {
+            "id": asignacion.id,
+            "estado": asignacion.estado,
+            "conductor_id": asignacion.conductor_id,
+            "vehiculo_placa": asignacion.vehiculo_placa,
+            "orden_id": asignacion.orden_id,
+            "fecha_inicio": asignacion.fecha_inicio,
+            "fecha_fin": asignacion.fecha_fin,
+        },
+        "incidencias": {
+            "total": incidencias_total,
+            "por_severidad": incidencias_por_severidad,
+        },
+        "tracking": tracking_stats,
+        "evidencias": {
+            "total": evidencias_total,
+            "por_tipo": evidencias_por_tipo,
+        },
+        "notificaciones_al_conductor": notificaciones_conductor,
+    }
+
+
+@router.get("/evidencias")
+async def reporte_evidencias(
+    mongo_db=Depends(get_mongo_db),
+    _: object = Depends(require_permiso("reportes", "read")),
+) -> dict[str, Any]:
+    """KPIs de evidencias: por tipo, espacio en GridFS y top incidencias."""
+    coll = mongo_db[evidencias_service.COLLECTION]
+
+    total = await coll.count_documents({})
+
+    por_tipo_pipeline = [{"$group": {"_id": "$tipo", "n": {"$sum": 1}}}]
+    por_tipo = {d["_id"]: d["n"] async for d in coll.aggregate(por_tipo_pipeline)}
+
+    espacio_pipeline = [
+        {"$unwind": {"path": "$archivos", "preserveNullAndEmptyArrays": False}},
+        {
+            "$group": {
+                "_id": None,
+                "archivos": {"$sum": 1},
+                "bytes": {"$sum": "$archivos.size"},
+            }
+        },
+    ]
+    espacio_rows = [d async for d in coll.aggregate(espacio_pipeline)]
+    if espacio_rows:
+        archivos_total = espacio_rows[0]["archivos"]
+        bytes_total = espacio_rows[0]["bytes"] or 0
+    else:
+        archivos_total = 0
+        bytes_total = 0
+
+    top_pipeline = [
+        {"$group": {"_id": "$incidencia_id", "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+        {"$limit": 10},
+    ]
+    top_incidencias = [
+        {"incidencia_id": d["_id"], "evidencias": d["n"]} async for d in coll.aggregate(top_pipeline)
+    ]
+
+    return {
+        "total_evidencias": total,
+        "por_tipo": por_tipo,
+        "archivos_en_gridfs": archivos_total,
+        "bytes_totales": bytes_total,
+        "megabytes_totales": round(bytes_total / (1024 * 1024), 2),
+        "top_incidencias_con_evidencias": top_incidencias,
+    }
+
+
+@router.get("/notificaciones")
+async def reporte_notificaciones(
+    horas: int = Query(24, ge=1, le=720),
+    mongo_db=Depends(get_mongo_db),
+    _: object = Depends(require_permiso("reportes", "read")),
+) -> dict[str, Any]:
+    """Resumen de notificaciones en una ventana: por tipo destinatario, leidas vs pendientes."""
+    desde = datetime.now(timezone.utc) - timedelta(hours=horas)
+    coll = mongo_db[notificaciones_service.COLLECTION]
+    base = {"fecha": {"$gte": desde}}
+
+    total = await coll.count_documents(base)
+    leidas = await coll.count_documents({**base, "leida": True})
+    pendientes = total - leidas
+
+    por_dest_pipeline = [
+        {"$match": base},
+        {
+            "$group": {
+                "_id": "$destinatario_tipo",
+                "n": {"$sum": 1},
+                "leidas": {"$sum": {"$cond": ["$leida", 1, 0]}},
+            }
+        },
+    ]
+    por_destinatario = [
+        {"tipo": d["_id"], "total": d["n"], "leidas": d["leidas"], "pendientes": d["n"] - d["leidas"]}
+        async for d in coll.aggregate(por_dest_pipeline)
+    ]
+
+    return {
+        "ventana_horas": horas,
+        "desde": desde,
+        "total": total,
+        "leidas": leidas,
+        "pendientes": pendientes,
+        "por_destinatario": por_destinatario,
     }

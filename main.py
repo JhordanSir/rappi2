@@ -16,7 +16,7 @@ from api import (
     reportes,
     roles,
     rutas,
-    tokens,
+    sesiones,
     tracking,
     usuarios,
     vehiculos,
@@ -50,9 +50,9 @@ app.add_middleware(AuditMiddleware)
 PREFIX = "/api"
 
 app.include_router(auth.router, prefix=PREFIX)
-app.include_router(tokens.router, prefix=PREFIX)
 app.include_router(roles.router, prefix=PREFIX)
 app.include_router(usuarios.router, prefix=PREFIX)
+app.include_router(sesiones.router, prefix=PREFIX)
 app.include_router(clientes.router, prefix=PREFIX)
 app.include_router(ordenes.router, prefix=PREFIX)
 app.include_router(pagos.router, prefix=PREFIX)

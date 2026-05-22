@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -7,6 +8,7 @@ from core.database import get_db
 from models.asignaciones import Asignacion
 from models.incidencias import Incidencia
 from models.usuarios import Usuario
+from schemas.common import TipoEvidencia
 from schemas.incidencias import IncidenciaCreate, IncidenciaResponse, IncidenciaUpdate
 from schemas.mongo_evidencias import EvidenciaIn, EvidenciaOut
 from services.mongo import evidencias_service
@@ -107,6 +109,62 @@ async def add_evidencia(
         raise HTTPException(status_code=404, detail="Incidencia no encontrada")
     doc = await evidencias_service.crear(mongo_db, incidencia_id, payload, current_user.id)
     return doc
+
+
+@router.post(
+    "/{incidencia_id}/evidencias/upload",
+    response_model=EvidenciaOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_evidencia(
+    incidencia_id: int,
+    tipo: TipoEvidencia = Form(...),
+    descripcion: str | None = Form(None),
+    archivos: list[UploadFile] = File(..., description="Uno o mas archivos (foto/video/audio/documento)"),
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    current_user: Usuario = Depends(get_current_user),
+    _: object = Depends(require_permiso("incidencias", "write")),
+):
+    """Sube archivos fisicos a GridFS y crea el documento de evidencia asociado."""
+    incidencia = await db.get(Incidencia, incidencia_id)
+    if incidencia is None:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+    return await evidencias_service.crear_con_archivos(
+        mongo_db,
+        incidencia_id=incidencia_id,
+        archivos=archivos,
+        tipo=tipo,
+        descripcion=descripcion,
+        uploaded_by=current_user.id,
+    )
+
+
+@router.get("/evidencias/archivos/{file_id}")
+async def descargar_archivo_evidencia(
+    file_id: str,
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("incidencias", "read")),
+):
+    grid_out = await evidencias_service.abrir_descarga(mongo_db, file_id)
+    if grid_out is None:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    metadata = grid_out.metadata or {}
+    content_type = metadata.get("content_type") or "application/octet-stream"
+
+    async def _iter():
+        async for chunk in grid_out:
+            yield chunk
+
+    return StreamingResponse(
+        _iter(),
+        media_type=content_type,
+        headers={
+            "Content-Length": str(grid_out.length),
+            "Content-Disposition": f'inline; filename="{grid_out.filename}"',
+        },
+    )
 
 
 @router.get("/{incidencia_id}/evidencias", response_model=list[EvidenciaOut])
