@@ -13,7 +13,7 @@ from core.database import get_db
 from core.mongo import get_mongo_db as _get_mongo_db
 from core.security import decode_access_token
 from models.usuarios import Usuario
-from models.roles import Rol, Permiso
+from models.roles import Permiso
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 

@@ -6,7 +6,6 @@ viva semanticamente bajo /usuarios/{id}/sesiones en vez de un CRUD aislado.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 

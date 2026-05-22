@@ -14,7 +14,7 @@ class Usuario(Base):
     rol_id = Column(Integer, ForeignKey("roles.id", ondelete="RESTRICT"), nullable=False)
     cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="SET NULL"), unique=True, nullable=True)
     activo = Column(Boolean, default=True, nullable=False)
-    fecha_registro = Column(DateTime, default=func.now(), nullable=False)
+    fecha_registro = Column(DateTime(timezone=True), default=func.now(), nullable=False)
 
     rol = relationship("Rol", back_populates="usuarios", lazy="joined")
     cliente = relationship("Cliente", back_populates="usuario", uselist=False)
@@ -28,7 +28,7 @@ class Token(Base):
     id = Column(Integer, primary_key=True, index=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, index=True)
     token = Column(Text, unique=True, nullable=False, index=True)
-    fecha_expiracion = Column(DateTime, nullable=False)
+    fecha_expiracion = Column(DateTime(timezone=True), nullable=False)
     revocado = Column(Boolean, default=False, nullable=False)
 
     usuario = relationship("Usuario", back_populates="tokens")

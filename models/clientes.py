@@ -13,7 +13,7 @@ class Cliente(Base):
     telefono = Column(String(20), nullable=True)
     cc_id = Column(String(30), nullable=True)
     activo = Column(Boolean, default=True, nullable=False)
-    fecha_registro = Column(DateTime, default=func.now(), nullable=False)
+    fecha_registro = Column(DateTime(timezone=True), default=func.now(), nullable=False)
 
     direcciones = relationship("ClienteDireccion", back_populates="cliente", cascade="all, delete-orphan")
     ordenes = relationship("Orden", back_populates="cliente", cascade="all, delete-orphan")

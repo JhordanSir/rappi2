@@ -8,6 +8,6 @@ email-validator
 python-multipart
 alembic
 httpx
-passlib
-bcrypt==4.0.1
+passlib[bcrypt]
+bcrypt==3.2.2
 python-jose[cryptography]

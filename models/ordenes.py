@@ -14,7 +14,7 @@ class Orden(Base):
     distrito_origen = Column(String(80), nullable=True)
     direccion_destino = Column(String(200), nullable=False)
     distrito_destino = Column(String(80), nullable=True)
-    fecha_creacion = Column(DateTime, default=func.now(), nullable=False)
+    fecha_creacion = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     total = Column(Numeric(10, 2), nullable=True)
 
     __table_args__ = (
@@ -36,7 +36,7 @@ class Pago(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"), nullable=False, index=True)
-    fecha_pago = Column(DateTime, default=func.now(), nullable=False)
+    fecha_pago = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     monto = Column(Numeric(10, 2), nullable=False)
     estado = Column(String(20), default="Pendiente", nullable=False)
     referencia_banco = Column(String(80), nullable=True)
@@ -49,7 +49,7 @@ class Factura(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"), nullable=False, index=True)
-    fecha = Column(DateTime, default=func.now(), nullable=False)
+    fecha = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     ruc = Column(String(20), nullable=True)
     monto = Column(Numeric(10, 2), nullable=False)
     url = Column(Text, nullable=True)

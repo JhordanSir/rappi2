@@ -16,8 +16,8 @@ class Asignacion(Base):
         nullable=False,
     )
     estado = Column(String(20), default="Asignada", nullable=False)
-    fecha_inicio = Column(DateTime, nullable=True)
-    fecha_fin = Column(DateTime, nullable=True)
+    fecha_inicio = Column(DateTime(timezone=True), nullable=True)
+    fecha_fin = Column(DateTime(timezone=True), nullable=True)
 
     orden = relationship("Orden", back_populates="asignaciones")
     conductor = relationship("Conductor", back_populates="asignaciones")

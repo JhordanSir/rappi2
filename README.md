@@ -147,16 +147,19 @@ Más allá del CRUD básico, la API expone:
 - `GET /incidencias?desde=&hasta=` — distribución por severidad y tipo.
 - `GET /tiempos-entrega?desde=&hasta=` — promedio/min/max de duración de asignaciones finalizadas.
 - `GET /cliente/{id}/resumen` — vista 360 de un cliente.
+- `GET /sla-entregas?desde=&hasta=&sla_minutos=60` — % de entregas on-time + percentiles p50/p95.
+- `GET /conductores/eficiencia?desde=&hasta=&limit=20` — entregas/hora, horas activas, tasa de incidencias por conductor.
+- `GET /distribucion-geografica?desde=&hasta=&top=10` — top distritos por volumen (origen y destino).
 
 **Auditoría** (`/api/auditoria`, requiere `auditoria:read`):
 - `GET /` — listar logs (filtros: usuario_id, metodo).
 - `GET /resumen?horas=24` — agregaciones MongoDB (requests por status, método, top rutas, top usuarios, errores 4xx/5xx).
 
-**Sesiones / Tokens** (`/api/tokens`, requiere `tokens:*`):
-- `GET /` — listar refresh tokens (filtros: usuario_id, revocado, activos).
-- `GET /mias` — sesiones del usuario autenticado (sin permiso especial).
-- `DELETE /{id}` — revocar un token puntual.
-- `DELETE /usuario/{id}` — forzar logout total de un usuario.
+**Sesiones** (sub-recurso de usuarios, requiere `sesiones:*` si no es el propio usuario):
+- `GET /api/usuarios/me/sesiones` — sesiones del usuario autenticado.
+- `GET /api/usuarios/{id}/sesiones` — sesiones de cualquier usuario (admin).
+- `DELETE /api/usuarios/{id}/sesiones/{sesion_id}` — revocar una sesión.
+- `DELETE /api/usuarios/{id}/sesiones` — forzar logout total de un usuario.
 
 **Tracking avanzado** (`/api/tracking`, requiere `tracking:read`):
 - `GET /tracking/asignacion/{id}/estadisticas` — distancia total (haversine), duración, velocidad promedio.
@@ -168,4 +171,5 @@ Más allá del CRUD básico, la API expone:
 - `PATCH /asignaciones/{id}/finalizar` — marca fin, orden a "Entregado", conductor de nuevo "Disponible".
 - `POST /rutas/planificar` — llama a OpenRouteService y crea automáticamente la geocerca de la ruta en MongoDB.
 - `GET /geocercas/contiene?lon=&lat=` — geocercas activas que contienen el punto (`$geoIntersects`).
-- `POST /incidencias/{id}/evidencias` — subir URLs de evidencias multimedia a MongoDB.
+- `POST /incidencias/{id}/evidencias/upload` (multipart) — sube archivos físicos a GridFS y crea el documento de evidencia.
+- `GET /incidencias/evidencias/archivos/{file_id}` — stream de descarga desde GridFS.

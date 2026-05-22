@@ -7,7 +7,6 @@ from sqlalchemy.orm import selectinload
 from api.dependencies import invalidar_cache_permisos, require_permiso
 from core.database import get_db
 from models.roles import Permiso, Rol
-from schemas.common import MessageResponse
 from schemas.roles import PermisoCreate, PermisoResponse, RolCreate, RolResponse, RolUpdate
 
 router = APIRouter(prefix="/roles", tags=["roles"])

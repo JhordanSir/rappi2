@@ -1,3 +1,6 @@
+from typing import List
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +18,15 @@ class Settings(BaseSettings):
     AUDIT_ENABLED: bool = True
 
     ORS_API_KEY: str = "your_ors_api_key_here"
+
+    CORS_ORIGINS: List[str] = ["*"]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _split_origins(cls, v):
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

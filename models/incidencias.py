@@ -10,7 +10,7 @@ class Incidencia(Base):
     id = Column(Integer, primary_key=True, index=True)
     asignacion_id = Column(Integer, ForeignKey("asignaciones.id", ondelete="CASCADE"), nullable=False, index=True)
     tipo = Column(String(50), nullable=False)
-    fecha = Column(DateTime, default=func.now(), nullable=False)
+    fecha = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     severidad = Column(Integer, nullable=False)
     notas = Column(Text, nullable=True)
     evidencia_url = Column(Text, nullable=True)

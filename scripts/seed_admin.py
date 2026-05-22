@@ -35,7 +35,7 @@ async def main() -> None:
             db.add(
                 Usuario(
                     username="admin",
-                    email="admin@rappi2.local",
+                    email="admin@rappi2.com",
                     password_hash=hash_password("admin123"),
                     rol_id=admin_rol.id,
                 )
