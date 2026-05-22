@@ -1,69 +1,57 @@
-from sqlalchemy import Column, Integer, String, Boolean, Numeric, DateTime, ForeignKey, Text, CheckConstraint
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from geoalchemy2 import Geometry
+
 from core.database import Base
+
 
 class Orden(Base):
     __tablename__ = "ordenes"
 
     id = Column(Integer, primary_key=True, index=True)
-    cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="RESTRICT"))
-    estado = Column(String(30), default="Pendiente")
-    origen_geom = Column(Geometry('POINT', srid=4326), nullable=False)
-    destino_geom = Column(Geometry('POINT', srid=4326), nullable=False)
-    origen_texto = Column(Text, nullable=False)
-    destino_texto = Column(Text, nullable=False)
-    fecha_creacion = Column(DateTime, default=func.now())
+    cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="CASCADE"), nullable=False, index=True)
+    estado = Column(String(20), default="Pendiente", nullable=False)
+    direccion_origen = Column(String(200), nullable=False)
+    distrito_origen = Column(String(80), nullable=True)
+    direccion_destino = Column(String(200), nullable=False)
+    distrito_destino = Column(String(80), nullable=True)
+    fecha_creacion = Column(DateTime, default=func.now(), nullable=False)
+    total = Column(Numeric(10, 2), nullable=True)
 
     __table_args__ = (
-        CheckConstraint("estado IN ('Pendiente', 'En Proceso', 'En Tránsito', 'Entregado', 'Cancelado')", name="estado_valido"),
+        CheckConstraint(
+            "estado IN ('Pendiente','En Proceso','En Tránsito','Entregado','Cancelado')",
+            name="orden_estado",
+        ),
     )
 
-    cliente = relationship("Cliente")
+    cliente = relationship("Cliente", back_populates="ordenes")
+    pagos = relationship("Pago", back_populates="orden", cascade="all, delete-orphan")
+    facturas = relationship("Factura", back_populates="orden", cascade="all, delete-orphan")
+    asignaciones = relationship("Asignacion", back_populates="orden", cascade="all, delete-orphan")
+    rutas = relationship("RutaPlanificada", back_populates="orden", cascade="all, delete-orphan")
 
-class Asignacion(Base):
-    __tablename__ = "asignaciones"
 
-    id = Column(Integer, primary_key=True, index=True)
-    orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"))
-    conductor_id = Column(Integer, ForeignKey("conductores.id", ondelete="RESTRICT"))
-    vehiculo_id = Column(Integer, ForeignKey("vehiculos.id", ondelete="RESTRICT"))
-    estado = Column(String(30), default="Asignado")
-    fecha_inicio = Column(DateTime, nullable=True)
-    fecha_fin = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=func.now())
-
-    orden = relationship("Orden")
-    conductor = relationship("Conductor")
-    vehiculo = relationship("Vehiculo")
-
-class RutaPlanificada(Base):
-    __tablename__ = "rutas_planificadas"
+class Pago(Base):
+    __tablename__ = "pagos"
 
     id = Column(Integer, primary_key=True, index=True)
-    orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"))
-    ruta_linea = Column(Geometry('LINESTRING', srid=4326), nullable=True)
-    tolerancia_metros = Column(Integer, default=50)
-    geocerca_poligono = Column(Geometry('POLYGON', srid=4326), nullable=True)
-    distancia_km = Column(Numeric, nullable=True)
-    # Using String for simplicity with INTERVAL representation if needed, or PostgreSQL INTERVAL
-    # SQLAlchemy Native Interval:
-    from sqlalchemy.dialects.postgresql import INTERVAL
-    tiempo_estimado = Column(INTERVAL, nullable=True)
-    created_at = Column(DateTime, default=func.now())
+    orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"), nullable=False, index=True)
+    fecha_pago = Column(DateTime, default=func.now(), nullable=False)
+    monto = Column(Numeric(10, 2), nullable=False)
+    estado = Column(String(20), default="Pendiente", nullable=False)
+    referencia_banco = Column(String(80), nullable=True)
 
-    orden = relationship("Orden")
+    orden = relationship("Orden", back_populates="pagos")
 
-class ParadaPlanificada(Base):
-    __tablename__ = "paradas_planificadas"
+
+class Factura(Base):
+    __tablename__ = "facturas"
 
     id = Column(Integer, primary_key=True, index=True)
-    ruta_id = Column(Integer, ForeignKey("rutas_planificadas.id", ondelete="CASCADE"))
-    orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"))
-    geom = Column(Geometry('POINT', srid=4326), nullable=False)
-    secuencia = Column(Integer, nullable=False)
-    estado = Column(String(30), default="Pendiente")
+    orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"), nullable=False, index=True)
+    fecha = Column(DateTime, default=func.now(), nullable=False)
+    ruc = Column(String(20), nullable=True)
+    monto = Column(Numeric(10, 2), nullable=False)
+    url = Column(Text, nullable=True)
 
-    ruta = relationship("RutaPlanificada")
-    orden = relationship("Orden")
+    orden = relationship("Orden", back_populates="facturas")

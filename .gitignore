@@ -14,7 +14,6 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
-alembic/
 
 # Virtualenv
 .venv/
@@ -49,3 +48,4 @@ logs/
 # Alembic (mantener migraciones versionadas)
 # pero ignorar caches locales
 alembic/__pycache__/
+alembic/versions/__pycache__/

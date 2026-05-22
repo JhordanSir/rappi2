@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgis/postgis:15-3.3
+    image: postgres:15-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -11,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-rappi2}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   mongodb:
     image: mongo:6.0
@@ -21,6 +24,11 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "-u", "${MONGO_USER:-admin}", "-p", "${MONGO_PASSWORD:-admin}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   api:
     build: .
@@ -32,9 +40,13 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rappi2}
       - MONGO_URL=mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-admin}@mongodb:27017/
       - MONGO_DB=${MONGO_DB:-rappi2_mongo}
+      - SECRET_KEY=${SECRET_KEY:-change_me_to_a_random_64_char_string_in_production}
+      - ORS_API_KEY=${ORS_API_KEY:-}
     depends_on:
-      - postgres
-      - mongodb
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
 
 volumes:
   postgres_data:

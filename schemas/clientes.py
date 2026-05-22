@@ -1,45 +1,61 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr
+
 
 class ClienteDireccionBase(BaseModel):
-    direccion_texto: str
+    direccion: str
+    distrito: Optional[str] = None
     ciudad: Optional[str] = None
     estado: Optional[str] = None
-    cp: Optional[str] = None
+    pais: Optional[str] = None
     es_principal: bool = False
-    
+
+
 class ClienteDireccionCreate(ClienteDireccionBase):
-    latitud: float = Field(..., description="Latitud (escala -90 a 90)")
-    longitud: float = Field(..., description="Longitud (escala -180 a 180)")
+    pass
+
+
+class ClienteDireccionUpdate(BaseModel):
+    direccion: Optional[str] = None
+    distrito: Optional[str] = None
+    ciudad: Optional[str] = None
+    estado: Optional[str] = None
+    pais: Optional[str] = None
+    es_principal: Optional[bool] = None
+
 
 class ClienteDireccionResponse(ClienteDireccionBase):
     id: int
-    geom_geojson: Optional[dict] = None
-    
-    class Config:
-        from_attributes = True
+    cliente_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class ClienteBase(BaseModel):
     nombre: str
     email: EmailStr
     telefono: Optional[str] = None
-    atencion_nam: Optional[str] = None
+    cc_id: Optional[str] = None
+
 
 class ClienteCreate(ClienteBase):
     pass
+
 
 class ClienteUpdate(BaseModel):
     nombre: Optional[str] = None
     email: Optional[EmailStr] = None
     telefono: Optional[str] = None
-    atencion_nam: Optional[str] = None
+    cc_id: Optional[str] = None
+    activo: Optional[bool] = None
+
 
 class ClienteResponse(ClienteBase):
     id: int
-    is_active: bool
-    created_at: datetime
+    activo: bool
+    fecha_registro: datetime
     direcciones: List[ClienteDireccionResponse] = []
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)

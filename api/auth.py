@@ -1,82 +1,157 @@
-from datetime import timedelta
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
-from core.database import get_db
-from core.security import verify_password, create_access_token, get_password_hash
-from core.config import settings
-from models.users import Usuario
-from schemas.users import Token, UsuarioCreate, UsuarioResponse, UsuarioUpdate
 from api.dependencies import get_current_user
+from core.config import settings
+from core.database import get_db
+from core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_password,
+    hash_token,
+    verify_password,
+)
+from models.clientes import Cliente
+from models.roles import Rol
+from models.usuarios import Token, Usuario
+from schemas.auth import LogoutRequest, RefreshRequest, RegisterRequest, TokenPair
+from schemas.common import MessageResponse
+from schemas.usuarios import UsuarioResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-@router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Usuario).filter(Usuario.username == form_data.username))
-    user = result.scalars().first()
-    
-    if not user or not verify_password(form_data.password, user.password_hash):
+
+async def _get_rol_default(db: AsyncSession, nombre: str = "Cliente") -> Rol:
+    result = await db.execute(select(Rol).where(Rol.nombre == nombre))
+    rol = result.scalar_one_or_none()
+    if rol is None:
+        raise HTTPException(status_code=500, detail=f"Rol por defecto '{nombre}' no existe. Ejecuta seed_admin.")
+    return rol
+
+
+@router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
+async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Usuario).where((Usuario.username == payload.username) | (Usuario.email == payload.email))
+    )
+    if result.scalars().first():
+        raise HTTPException(status_code=400, detail="Username o email ya registrado")
+
+    rol_id = payload.rol_id
+    if rol_id is None:
+        rol_default = await _get_rol_default(db, "Cliente")
+        rol_id = rol_default.id
+
+    rol_result = await db.execute(select(Rol).where(Rol.id == rol_id))
+    rol = rol_result.scalar_one_or_none()
+    if rol is None:
+        raise HTTPException(status_code=400, detail="rol_id invalido")
+
+    cliente_id = None
+    if rol.nombre == "Cliente":
+        cliente = Cliente(
+            nombre=payload.nombre or payload.username,
+            email=payload.email,
+            telefono=payload.telefono,
+            cc_id=payload.cc_id,
+        )
+        db.add(cliente)
+        await db.flush()
+        cliente_id = cliente.id
+
+    usuario = Usuario(
+        username=payload.username,
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        rol_id=rol_id,
+        cliente_id=cliente_id,
+    )
+    db.add(usuario)
+    await db.commit()
+    await db.refresh(usuario)
+
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.rol).selectinload(Rol.permisos)).where(Usuario.id == usuario.id)
+    )
+    return result.scalar_one()
+
+
+@router.post("/login", response_model=TokenPair)
+async def login(form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Usuario).where(Usuario.username == form.username))
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(form.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+    if not user.activo:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo")
+
+    access_token, _ = create_access_token(user.id, user.rol_id, user.username)
+    raw_refresh, hashed_refresh, expires_at = create_refresh_token()
+    db.add(Token(usuario_id=user.id, token=hashed_refresh, fecha_expiracion=expires_at))
+    await db.commit()
+
+    return TokenPair(
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
-    return {"access_token": access_token, "token_type": "bearer"}
 
-@router.post("/register", response_model=UsuarioResponse)
-async def register_user(user_in: UsuarioCreate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Usuario).filter((Usuario.username == user_in.username) | (Usuario.email == user_in.email)))
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Username or email already registered")
-        
-    new_user = Usuario(
-        username=user_in.username,
-        email=user_in.email,
-        password_hash=get_password_hash(user_in.password),
-        rol_id=user_in.rol_id
+
+@router.post("/refresh", response_model=TokenPair)
+async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    hashed = hash_token(payload.refresh_token)
+    result = await db.execute(select(Token).where(Token.token == hashed))
+    token_row = result.scalar_one_or_none()
+    if token_row is None or token_row.revocado:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token invalido")
+    expira = token_row.fecha_expiracion
+    if expira.tzinfo is None:
+        expira = expira.replace(tzinfo=timezone.utc)
+    if expira < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expirado")
+
+    user_result = await db.execute(select(Usuario).where(Usuario.id == token_row.usuario_id))
+    user = user_result.scalar_one_or_none()
+    if user is None or not user.activo:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario invalido")
+
+    token_row.revocado = True
+
+    access_token, _ = create_access_token(user.id, user.rol_id, user.username)
+    raw_refresh, hashed_refresh, expires_at = create_refresh_token()
+    db.add(Token(usuario_id=user.id, token=hashed_refresh, fecha_expiracion=expires_at))
+    await db.commit()
+
+    return TokenPair(
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    return new_user
 
-@router.get("/users", response_model=list[UsuarioResponse])
-async def get_users(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    result = await db.execute(select(Usuario).where(Usuario.is_active == True).offset(skip).limit(limit))
-    return result.scalars().all()
 
-@router.patch("/users/{user_id}", response_model=UsuarioResponse)
-async def update_user(user_id: int, user_update: UsuarioUpdate, db: AsyncSession = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    result = await db.execute(select(Usuario).where(Usuario.id == user_id, Usuario.is_active == True))
-    db_user = result.scalar_one_or_none()
-    
-    if not db_user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        
-    update_data = user_update.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_user, key, value)
-        
-    await db.commit()
-    await db.refresh(db_user)
-    return db_user
+@router.post("/logout", response_model=MessageResponse)
+async def logout(payload: LogoutRequest, db: AsyncSession = Depends(get_db)):
+    hashed = hash_token(payload.refresh_token)
+    result = await db.execute(select(Token).where(Token.token == hashed))
+    token_row = result.scalar_one_or_none()
+    if token_row and not token_row.revocado:
+        token_row.revocado = True
+        await db.commit()
+    return MessageResponse(message="Logout exitoso")
 
-@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    result = await db.execute(select(Usuario).where(Usuario.id == user_id))
-    db_user = result.scalar_one_or_none()
-    
-    if not db_user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        
-    db_user.is_active = False
-    await db.commit()
-    return None
+
+@router.get("/me", response_model=UsuarioResponse)
+async def me(current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.rol).selectinload(Rol.permisos)).where(Usuario.id == current_user.id)
+    )
+    return result.scalar_one()

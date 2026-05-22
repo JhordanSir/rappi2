@@ -1,5 +1,24 @@
-from models.users import Usuario, Rol
-from models.clientes import Cliente, ClienteDireccion
-from models.logistica import Vehiculo, Conductor
-from models.ordenes import Orden, Asignacion, RutaPlanificada, ParadaPlanificada
 from core.database import Base
+
+from models.roles import Permiso, Rol
+from models.clientes import Cliente, ClienteDireccion
+from models.usuarios import Token, Usuario
+from models.ordenes import Factura, Orden, Pago
+from models.vehiculos import Vehiculo
+from models.conductores import Conductor
+from models.asignaciones import Asignacion
+from models.rutas import Parada, RutaPlanificada
+from models.incidencias import Incidencia
+
+__all__ = [
+    "Base",
+    "Rol", "Permiso",
+    "Usuario", "Token",
+    "Cliente", "ClienteDireccion",
+    "Orden", "Pago", "Factura",
+    "Vehiculo",
+    "Conductor",
+    "Asignacion",
+    "RutaPlanificada", "Parada",
+    "Incidencia",
+]

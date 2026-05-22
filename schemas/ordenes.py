@@ -1,50 +1,37 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Optional
 from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 
-class Coordenada(BaseModel):
-    lat: float
-    lon: float
+from pydantic import BaseModel, ConfigDict
+
+from schemas.common import EstadoOrden
+
 
 class OrdenBase(BaseModel):
     cliente_id: int
-    origen: Coordenada
-    destino: Coordenada
-    origen_texto: str
-    destino_texto: str
+    direccion_origen: str
+    distrito_origen: Optional[str] = None
+    direccion_destino: str
+    distrito_destino: Optional[str] = None
+    total: Optional[Decimal] = None
+
 
 class OrdenCreate(OrdenBase):
     pass
 
+
 class OrdenUpdate(BaseModel):
-    estado: Optional[str] = None
-    origen_texto: Optional[str] = None
-    destino_texto: Optional[str] = None
+    estado: Optional[EstadoOrden] = None
+    direccion_origen: Optional[str] = None
+    distrito_origen: Optional[str] = None
+    direccion_destino: Optional[str] = None
+    distrito_destino: Optional[str] = None
+    total: Optional[Decimal] = None
 
-class OrdenResponse(BaseModel):
+
+class OrdenResponse(OrdenBase):
     id: int
-    cliente_id: int
-    estado: str
-    origen_texto: str
-    destino_texto: str
+    estado: EstadoOrden
     fecha_creacion: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-class AsignacionBase(BaseModel):
-    orden_id: int
-    conductor_id: int
-    vehiculo_id: int
-
-class AsignacionCreate(AsignacionBase):
-    pass
-
-class AsignacionResponse(AsignacionBase):
-    id: int
-    estado: str
-    fecha_inicio: Optional[datetime] = None
-    fecha_fin: Optional[datetime] = None
-    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
