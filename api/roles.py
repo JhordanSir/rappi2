@@ -59,11 +59,13 @@ async def create_rol(
     db.add(rol)
     try:
         await db.commit()
-        await db.refresh(rol)
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=400, detail="Nombre de rol ya existe")
-    return rol
+    result = await db.execute(
+        select(Rol).options(selectinload(Rol.permisos)).where(Rol.id == rol.id)
+    )
+    return result.scalar_one()
 
 
 @router.get("/{rol_id}", response_model=RolResponse)
@@ -92,10 +94,16 @@ async def update_rol(
     update = payload.model_dump(exclude_unset=True)
     for k, v in update.items():
         setattr(rol, k, v)
-    await db.commit()
-    await db.refresh(rol)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Nombre de rol ya existe")
     invalidar_cache_permisos(rol_id)
-    return rol
+    result = await db.execute(
+        select(Rol).options(selectinload(Rol.permisos)).where(Rol.id == rol_id)
+    )
+    return result.scalar_one()
 
 
 @router.delete("/{rol_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -108,7 +116,14 @@ async def delete_rol(
     if rol is None:
         raise HTTPException(status_code=404, detail="Rol no encontrado")
     await db.delete(rol)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede eliminar el rol: tiene usuarios asociados. Reasigna esos usuarios a otro rol antes de borrarlo.",
+        )
     invalidar_cache_permisos(rol_id)
 
 
