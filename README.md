@@ -1,7 +1,5 @@
 # Rappi2 — API de Logística (FastAPI + PostgreSQL + MongoDB)
 
-Sistema híbrido de gestión de entregas con tracking GPS, geocercas, notificaciones, auditoría y evidencias multimedia, alineado al diagrama `diseno_tablas.png`.
-
 ## Integrantes
 
 - Huamani Huamani Jhordan
@@ -9,167 +7,338 @@ Sistema híbrido de gestión de entregas con tracking GPS, geocercas, notificaci
 - Mares Graos Frederick
 - Ortiz Castañeda Jorge
 
-## Stack
+---
 
-- **FastAPI** (async, OpenAPI/Swagger)
-- **PostgreSQL 15** (datos transaccionales, sin PostGIS) + **SQLAlchemy 2.0 async**
-- **MongoDB 6.0** con índices `2dsphere` y TTL (Motor async)
-- **Alembic** para migraciones
-- **JWT (HS256)** + **refresh tokens** persistidos (rotación obligatoria)
-- **OpenRouteService** para planificación de rutas
+## Roles
 
-## Arquitectura híbrida
+### Jorge Ortiz Castañeda
 
-**PostgreSQL** — 15 tablas: `roles`, `permisos`, `usuarios`, `tokens`, `clientes`, `clientes_direcciones`, `ordenes`, `pagos`, `facturas`, `vehiculos` (PK = `placa`), `conductores`, `asignaciones`, `rutas_planificadas`, `paradas`, `incidencias`.
+**Rol:** Líder técnico / Backend principal  
+**Porcentaje de participación:** 100%
 
-**MongoDB** — 5 colecciones:
+**Aportes:**
 
-| Colección | Propósito | Índices |
-|---|---|---|
-| `gps_tracking` | Pings GPS de conductores/asignaciones | `2dsphere(location)`, `(asignacion_id, timestamp DESC)` |
-| `geocercas` | Polígonos / LineStrings de rutas, zonas, prohibidas | `2dsphere(geometry)`, `(ruta_id, activa)` |
-| `notificaciones` | Notificaciones in-app a usuarios/clientes | `(destinatario_tipo, destinatario_id, fecha)`, `(leida)` |
-| `auditoria` | Log de cada request HTTP (vía middleware) | `(usuario_id, timestamp)`, **TTL 90 días** |
-| `evidencias` | Multimedia de incidencias | `(incidencia_id)` |
+Arquitectura y arranque del sistema:
 
-## Arranque local (Docker)
+- `main.py`
+- Configuración general
+- Estructura de carpetas
+- `core/`
+  - Configuración
+  - Conexión DB
+  - Seguridad base
+- Docker y ejecución:
+  - `Dockerfile`
+  - `docker-compose.yml`
+  - `.env.example`
 
-```powershell
-# 1. Configurar entorno
-Copy-Item .env.example .env
-# Editar .env: cambiar SECRET_KEY y poner ORS_API_KEY si vas a planificar rutas
+Seguridad y acceso:
 
-# 2. Volumen limpio (si vienes de la version anterior con PostGIS)
-docker compose down -v
+- `api/auth.py`
+  - Login
+  - Register
+  - Refresh
+  - Logout
+- JWT
+- Refresh tokens
+- Helpers de seguridad:
+  - `core/security.py`
+- Dependencias de auth/permisos:
+  - `api/dependencies.py`
 
-# 3. Levantar servicios
-docker compose up --build -d
+Diseño de base de datos y modelo:
 
-# 4. Aplicar migraciones (crea las 15 tablas)
-docker compose exec api alembic upgrade head
+- `models/`
+- Tablas SQLAlchemy
+- Migraciones:
+  - `alembic/` si aplica en su repo
 
-# 5. Seed: roles base + permiso *:* para Admin + usuario admin/admin123
-docker compose exec api python -m scripts.seed_admin
-```
+Flujos principales del negocio:
 
-Endpoints disponibles tras el arranque:
+- Órdenes / Asignaciones / Rutas como flujo completo:
+  - `api/ordenes.py`
+  - `api/asignaciones.py`
+  - `api/rutas.py`
+- Integración con servicios externos:
+  - `services/ors_service.py`
 
-- API:       http://localhost:8000
-- Swagger:   http://localhost:8000/docs
-- OpenAPI:   http://localhost:8000/openapi.json
+---
 
-## Estructura
+### Jhordan Huamani Huamani
 
-```
-.
-├── main.py
-├── core\               # config, database (Postgres), mongo, security (JWT + refresh)
-├── models\             # SQLAlchemy 2.0 (15 modelos en 9 archivos)
-├── schemas\            # Pydantic v2 (Postgres + Mongo)
-├── api\                # Routers por dominio (15 routers)
-├── services\
-│   ├── ors_service.py  # OpenRouteService
-│   └── mongo\          # 5 servicios Mongo (tracking, geocerca, notif, auditoria, evidencias)
-├── middleware\
-│   └── audit.py        # AuditMiddleware -> escribe a Mongo `auditoria` async
-├── alembic\            # Migraciones versionadas
-├── scripts\
-│   └── seed_admin.py
-├── docker-compose.yml
-├── Dockerfile
-└── requirements.txt
-```
+**Rol:** Backend developer  
+**Porcentaje de participación:** 23%
 
-## Flujo de autenticación
+**Aportes:**
 
-1. `POST /api/auth/register` → crea `Usuario` (y `Cliente` si rol = "Cliente").
-2. `POST /api/auth/login` (form `username` + `password`) → devuelve `access_token` (15min) + `refresh_token` (7 días).
-3. Cliente envía `Authorization: Bearer <access_token>` en cada request.
-4. `POST /api/auth/refresh` con el refresh → emite par nuevo y **revoca el anterior** (rotación obligatoria).
-5. `POST /api/auth/logout` → marca refresh como revocado.
+Módulos CRUD + reglas de negocio secundarias:
 
-Los refresh tokens se persisten en la tabla `tokens` como SHA-256 (nunca el valor crudo).
+- Clientes:
+  - `api/clientes.py`
+  - Schemas/models relacionados
+- Conductores y vehículos:
+  - `api/conductores.py`
+  - `api/vehiculos.py`
+- Pagos y facturas:
+  - `api/pagos.py`
+  - `api/facturas.py`
 
-## Verificación end-to-end (resumen)
+Incidencias y evidencias:
 
-```powershell
-# Login (form-urlencoded)
-curl -X POST localhost:8000/api/auth/login -d "username=admin&password=admin123"
+- `api/incidencias.py`
+- `services/mongo/evidencias_service.py`
+- Schemas Mongo asociados
 
-# Crear cliente
-curl -X POST localhost:8000/api/clientes/ -H "Authorization: Bearer <token>" `
-  -H "Content-Type: application/json" `
-  -d '{"nombre":"Juan","email":"j@x.com"}'
+Apoyo a endpoints de reportes:
 
-# Crear orden → asignar → planificar ruta → trackear GPS
-# Detalle completo en el plan: C:\Users\<user>\.claude\plans\diseno-tablas-png-en-base-a-enumerated-wall.md
-```
+- `api/reportes.py`
+  - Consultas
+  - Agregados
+  - KPIs
 
-Validar Mongo:
+---
 
-```powershell
-docker compose exec mongodb mongosh -u admin -p admin
-> use rappi2_mongo
-> db.gps_tracking.getIndexes()    # debe mostrar 2dsphere
-> db.geocercas.getIndexes()       # debe mostrar 2dsphere
-> db.auditoria.getIndexes()       # debe mostrar TTL 7776000s
-> db.auditoria.find().sort({timestamp:-1}).limit(5)
-```
+### Miguel Flores León
 
-## Comandos Alembic útiles
+**Rol:** QA / Testing + Documentación  
+**Porcentaje de participación:** 100%
 
-```powershell
-docker compose exec api alembic upgrade head           # aplicar migraciones
-docker compose exec api alembic downgrade -1           # revertir una
-docker compose exec api alembic current                # ver version actual
-docker compose exec api alembic revision --autogenerate -m "mensaje"
-```
+**Aportes:**
 
-## Permisos
+Documentación principal:
 
-Sistema RBAC simple: cada rol tiene `(recurso, accion)` en `permisos`. Wildcards `*` soportados.
+- `README.md`
+  - Instalación
+  - Ejecución
+  - Endpoints clave
+  - Ejemplos
 
-Por defecto el seed crea:
-- Rol **Admin** con permiso `*:*` (acceso total).
-- Roles **Despachador**, **Conductor**, **Cliente** sin permisos (asignar manualmente vía `POST /api/roles/{id}/permisos`).
+Colecciones de pruebas y validación:
 
-Recursos en uso: `roles`, `usuarios`, `tokens`, `clientes`, `ordenes`, `pagos`, `facturas`, `vehiculos`, `conductores`, `asignaciones`, `rutas`, `incidencias`, `tracking`, `geocercas`, `notificaciones`, `auditoria`, `reportes`. Acciones: `read`, `write`, `delete`.
+- `postman.json`
+- Colección Postman o Thunder Client
+- Checklist de pruebas:
+  - Casos felices
+  - Errores
+  - Login
+  - Permisos
+  - CRUDs
+  - Rutas
+  - Tracking
 
-## Endpoints de funcionalidad / reportes
+Pruebas automatizadas:
 
-Más allá del CRUD básico, la API expone:
+- Pytest para endpoints clave:
+  - Auth
+  - Órdenes
+  - Asignaciones
+- Validación de respuestas:
+  - Status codes
+  - Esquemas
+  - Permisos
 
-**Reportes** (`/api/reportes`, requiere `reportes:read`):
-- `GET /dashboard` — KPIs globales (counts por entidad, órdenes por estado, conductores por disponibilidad, vehículos por estado, recaudación últimas 24h, incidencias severas).
-- `GET /ventas?desde=&hasta=&granularidad=dia|mes` — serie temporal de recaudación + total facturado.
-- `GET /top-clientes?limit=10` — top clientes por monto pagado.
-- `GET /conductores` — métricas por conductor (asignaciones totales, finalizadas, en curso, incidencias).
-- `GET /incidencias?desde=&hasta=` — distribución por severidad y tipo.
-- `GET /tiempos-entrega?desde=&hasta=` — promedio/min/max de duración de asignaciones finalizadas.
-- `GET /cliente/{id}/resumen` — vista 360 de un cliente.
-- `GET /sla-entregas?desde=&hasta=&sla_minutos=60` — % de entregas on-time + percentiles p50/p95.
-- `GET /conductores/eficiencia?desde=&hasta=&limit=20` — entregas/hora, horas activas, tasa de incidencias por conductor.
-- `GET /distribucion-geografica?desde=&hasta=&top=10` — top distritos por volumen (origen y destino).
+---
 
-**Auditoría** (`/api/auditoria`, requiere `auditoria:read`):
-- `GET /` — listar logs (filtros: usuario_id, metodo).
-- `GET /resumen?horas=24` — agregaciones MongoDB (requests por status, método, top rutas, top usuarios, errores 4xx/5xx).
+### Frederick Mares Graos
 
-**Sesiones** (sub-recurso de usuarios, requiere `sesiones:*` si no es el propio usuario):
-- `GET /api/usuarios/me/sesiones` — sesiones del usuario autenticado.
-- `GET /api/usuarios/{id}/sesiones` — sesiones de cualquier usuario (admin).
-- `DELETE /api/usuarios/{id}/sesiones/{sesion_id}` — revocar una sesión.
-- `DELETE /api/usuarios/{id}/sesiones` — forzar logout total de un usuario.
+**Rol:** Integración / DevOps ligero + soporte  
+**Porcentaje de participación:** 100%
 
-**Tracking avanzado** (`/api/tracking`, requiere `tracking:read`):
-- `GET /tracking/asignacion/{id}/estadisticas` — distancia total (haversine), duración, velocidad promedio.
-- `GET /tracking/conductores-cerca?lon=&lat=&radio_m=2000&ventana_min=5` — conductores con ping reciente cerca del punto (usa `$geoNear`).
+**Aportes:**
 
-**Flujos de negocio** (en routers ya descritos):
-- `POST /asignaciones/` — crea la asignación y transiciona orden a "En Proceso", conductor a "Ocupado".
-- `PATCH /asignaciones/{id}/iniciar` — marca inicio y orden a "En Tránsito".
-- `PATCH /asignaciones/{id}/finalizar` — marca fin, orden a "Entregado", conductor de nuevo "Disponible".
-- `POST /rutas/planificar` — llama a OpenRouteService y crea automáticamente la geocerca de la ruta en MongoDB.
-- `GET /geocercas/contiene?lon=&lat=` — geocercas activas que contienen el punto (`$geoIntersects`).
-- `POST /incidencias/{id}/evidencias/upload` (multipart) — sube archivos físicos a GridFS y crea el documento de evidencia.
-- `GET /incidencias/evidencias/archivos/{file_id}` — stream de descarga desde GridFS.
+Configuración y entorno:
+
+- `requirements.txt`
+- Dependencias limpias
+- `.env.example`
+- Manejo de variables
+- Scripts de inicialización:
+  - `scripts/seed_admin.py` o similares
+
+Persistencia e infraestructura:
+
+- Conexión PostgreSQL/Mongo:
+  - `core/database.py`
+  - `core/mongo.py`
+- Indexación/TTL en Mongo:
+  - Tracking
+  - Auditoría
+  - Geocercas
+- Desde:
+  - `services/mongo/*`
+
+Middleware y logging:
+
+- `middleware/audit.py`
+- Logging
+- Manejo de errores
+
+---
+
+## Descripción breve del sistema
+
+Rappi2 es una API de logística construida con FastAPI para gestionar entregas: clientes,
+órdenes, asignaciones a conductores, planificación de rutas, y funcionalidades transversales
+como tracking GPS, geocercas, notificaciones, auditoría y evidencias multimedia. Está diseñada
+como una solución híbrida: usa PostgreSQL para datos transaccionales y MongoDB para datos
+geoespaciales/logs y contenido no relacional.
+
+---
+
+## Motivación
+
+La motivación técnica y de negocio que se desprende del diseño es:
+
+- Separar lo transaccional de lo operacional/geoespacial:
+  - PostgreSQL para integridad, relaciones y consistencia (usuarios, órdenes, pagos, etc.).
+  - MongoDB para eventos y consultas geoespaciales (pings GPS, geocercas), auditoría
+    con TTL y evidencias.
+- Soportar procesos reales de logística: asignación de órdenes, estados de entrega,
+  seguimiento, KPIs/reportes, y auditoría de acciones.
+- Seguridad y control de acceso mediante RBAC (roles/permisos) y autenticación con
+  JWT + refresh tokens con rotación obligatoria.
+
+---
+
+## Requerimientos
+
+### Requerimientos funcionales principales
+
+- Autenticación y sesiones
+  - Registro, login, refresh token, logout.
+  - Persistencia de refresh tokens (revocables).
+- RBAC (Roles/Permisos)
+  - Gestión de roles y permisos por (recurso, acción) con comodines `*`.
+  - Gestión operativa
+  - CRUD de clientes y direcciones.
+  - CRUD de órdenes, pagos, facturas.
+  - Gestión de conductores y vehículos.
+  - Flujo de asignaciones: crear, iniciar, finalizar; transiciones de estado
+    (orden y conductor).
+- Planificación de rutas
+  - Integración con OpenRouteService para planificar y registrar rutas.
+- Tracking GPS y geocercas
+  - Guardar pings GPS y obtener métricas/estadísticas.
+  - Consultas geoespaciales (conductores cerca, punto dentro de geocerca).
+- Auditoría
+  - Registrar requests HTTP en MongoDB y consultar resúmenes.
+- Evidencias
+  - Subida/descarga de archivos relacionados a incidencias (p.ej., fotos)
+    usando GridFS.
+- Reportes
+  - Endpoints de dashboard/KPIs, ventas, SLA, top clientes, eficiencia de
+    conductores, etc.
+
+### Requerimientos no funcionales
+
+- Asíncrono: API y DB access async (FastAPI + SQLAlchemy async + Motor).
+- Contenerización: arranque con Docker Compose.
+- Migraciones: Alembic para versionar esquema PostgreSQL.
+- Seguridad:
+  - Hash de contraseñas (bcrypt).
+  - JWT HS256.
+  - Refresh tokens con rotación y revocación.
+  - CORS configurable.
+- Observabilidad mínima: auditoría HTTP en MongoDB (y TTL).
+
+---
+
+## Arquitectura
+
+### Estilo y componentes
+
+Arquitectura tipo API monolítica modular:
+
+- `main.py`: arranque de la app FastAPI.
+- `api/`: routers por dominio (roles, usuarios, clientes, órdenes, tracking, auditoría, etc.).
+- `models/`: modelos SQLAlchemy (PostgreSQL).
+- `schemas/`: esquemas Pydantic (DTOs).
+- `services/`:
+  - Integración externa OpenRouteService (`ors_service.py`).
+  - Servicios Mongo (tracking, geocercas, notificaciones, auditoría, evidencias).
+- `middleware/`:
+  - Middleware de auditoría (escribe logs a Mongo).
+- `core/`:
+  - Config (`config.py`)
+  - PostgreSQL async (`database.py`)
+  - Mongo (`mongo.py`)
+  - Seguridad (JWT, hashing, etc.)
+- `alembic/`: migraciones.
+- `scripts/`: seed inicial (roles/permisos/admin).
+
+---
+
+## Persistencia híbrida (PostgreSQL + MongoDB)
+
+- PostgreSQL: entidad-relación, transacciones, integridad referencial.
+- MongoDB: colecciones para:
+  - Tracking GPS (alto volumen, geoespacial)
+  - Geocercas (polígonos/LineStrings, geoespacial)
+  - Notificaciones
+  - Auditoría con TTL
+  - Evidencias (metadatos + archivos en GridFS)
+
+---
+
+## Esquema de Bases de Datos
+
+### PostgreSQL
+
+Su diseño integra diferentes módulos relacionados entre sí, como usuarios, clientes,
+órdenes, conductores, vehículos, rutas, pagos e incidencias, facilitando el control y
+seguimiento de todo el proceso del servicio.
+
+- El esquema de la base de datos está orientado a un sistema de gestión logística
+  y transporte.
+- Gestión de usuarios: incluye las tablas usuarios, roles, permisos y tokens, que
+  permiten controlar el acceso al sistema y definir qué acciones puede realizar
+  cada usuario.
+- Gestión de clientes: se manejan los datos de los clientes y sus direcciones
+  mediante las tablas clientes y clientes_direcciones.
+- Gestión de órdenes: la tabla ordenes registra los pedidos o servicios solicitados,
+  incluyendo origen, destino, estado, fecha de creación y costo total.
+- Gestión operativa: las tablas conductores, vehículos y asignaciones permiten
+  asignar un conductor y un vehículo a cada orden.
+- Planificación de rutas: las tablas rutas_planificadas y paradas permiten registrar
+  la ruta, distancia estimada, tiempo aproximado y puntos de parada del servicio.
+- Gestión económica: las tablas pagos y facturas permiten controlar los pagos
+  realizados y la emisión de comprobantes.
+- Control de incidencias: la tabla incidencias registra problemas o eventos
+  ocurridos durante la ejecución del servicio.
+- En conjunto, la base de datos permite administrar clientes, usuarios, órdenes,
+  transporte, rutas, pagos, facturación e incidencias de forma organizada.
+
+![Diseño de tablas SQL](diseno_tablas.png)
+
+---
+
+### MongoDB
+
+El siguiente esquema corresponde a una base de datos NoSQL en MongoDB, diseñada
+para complementar el sistema logístico mediante colecciones orientadas al seguimiento
+operativo, viajes, alertas, geocercas y estadísticas. A diferencia de una base de datos
+relacional, la información se organiza en documentos JSON, lo que permite almacenar
+datos flexibles y consultar eventos del servicio de manera rápida.
+
+- Colección `eventos_operacionales`: registra eventos generados durante la
+  operación, como el escaneo de paquetes, junto con la fecha, dispositivo utilizado
+  y datos adicionales del evento.
+- Colección `alerta_logistica`: almacena alertas relacionadas con problemas
+  logísticos, como desvíos de ruta o incumplimiento de geocercas, indicando si la
+  alerta fue resuelta o no.
+- Colección `viajes`: guarda información resumida de cada viaje, incluyendo la orden
+  asociada, el conductor, la distancia estimada, el tiempo estimado y la cantidad de
+  paradas.
+- Colección `geocercas`: define zonas geográficas importantes, como almacenes o
+  áreas de control, usando coordenadas en formato de polígono.
+- Colección `estadisticas_por_orden`: almacena métricas de cada orden, como
+  distancia recorrida, tiempo en tránsito y velocidad promedio.
+- En conjunto, estas colecciones permiten monitorear la operación logística en
+  tiempo real, controlar rutas, detectar incidencias y generar estadísticas útiles
+  para la toma de decisiones.
+
+![Diseño de documentos MongoDB](diseño_documentos.png)
+
+---
+
+## Evidencias Postman
