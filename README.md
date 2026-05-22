@@ -442,3 +442,105 @@ datos flexibles y consultar eventos del servicio de manera rápida.
 ![Facturas delete](images/rappi2_facturas_delete.jpeg)
 
 ---
+
+### Root / Docs
+![Info](images/miguel_endpoints/rappi2_root_info.jpeg)
+![Swagger UI](images/miguel_endpoints/rappi2_root_swagger-ui.jpeg)
+![OpenAPI JSON](images/miguel_endpoints/rappi2_root_openapi-json.jpeg)
+
+---
+
+### Asignaciones
+![Listar](images/miguel_endpoints/rappi2_asignaciones_listar.jpeg)
+![Obtener](images/miguel_endpoints/rappi2_asignaciones_obtener.jpeg)
+![Crear](images/miguel_endpoints/rappi2_asignaciones_crear.jpeg)
+![Actualizar](images/miguel_endpoints/rappi2_asignaciones_actualizar.jpeg)
+![Iniciar](images/miguel_endpoints/rappi2_asignaciones_iniciar.jpeg)
+![Finalizar](images/miguel_endpoints/rappi2_asignaciones_finalizar.jpeg)
+![Eliminar](images/miguel_endpoints/rappi2_asignaciones_eliminar.jpeg)
+
+---
+
+### Auditoría
+![Listar logs auditoría](images/miguel_endpoints/rappi2_auditoria_listar-logs-auditoria.jpeg)
+![Resumen auditoría](images/miguel_endpoints/rappi2_auditoria_resumen-auditoria.jpeg)
+
+---
+
+### Geocercas
+![Listar](images/miguel_endpoints/rappi2_geocerca_listar.jpeg)
+![Obtener uno](images/miguel_endpoints/rappi2_geocerca_obtener_uno.jpeg)
+![Crear](images/miguel_endpoints/rappi2_geocerca_crear.jpeg)
+![Actualizar](images/miguel_endpoints/rappi2_geocerca_actualizar.jpeg)
+![Desactivar](images/miguel_endpoints/rappi2_geocerca_desactivar.jpeg)
+![Punto en geocerca](images/miguel_endpoints/rappi2_geocerca_geocerca_punto.jpeg)
+
+---
+
+### Incidencias (CRUD)
+![Listar incidencias](images/miguel_endpoints/rappi2_incidencias_listar-incidencias.jpeg)
+![Obtener incidencia](images/miguel_endpoints/rappi2_incidencias_obtener-incidencias.jpeg)
+![Crear incidencia](images/miguel_endpoints/rappi2_incidencias_crear-incidencias.jpeg)
+![Actualizar incidencia](images/miguel_endpoints/rappi2_incidencias_actualizar-incidencias.jpeg)
+![Eliminar incidencia](images/miguel_endpoints/rappi2_incidencias_eliminar-incidencias.jpeg)
+
+---
+
+### Incidencias (Evidencias)
+![Listar evidencias](images/miguel_endpoints/rappi2_incidencias_listar-evidencias.jpeg)
+![Obtener evidencia](images/miguel_endpoints/rappi2_incidencias_obtener-evidencias.jpeg)
+![Subir evidencia](images/miguel_endpoints/rappi2_incidencias_subir-evidencias.jpeg)
+![Descargar evidencia](images/miguel_endpoints/rappi2_incidencias_descargar-evidencias.jpeg)
+![Eliminar evidencia](images/miguel_endpoints/rappi2_incidencias_eliminar-evidencias.jpeg)
+
+---
+
+### Notificaciones
+![Mis notificaciones](images/miguel_endpoints/rappi2_notificaciones_mis-notificaciones.jpeg)
+![Crear](images/miguel_endpoints/rappi2_notificaciones_crear.jpeg)
+![Marcar leído](images/miguel_endpoints/rappi2_notificaciones_marcar-leido.jpeg)
+![Eliminar](images/miguel_endpoints/rappi2_notificaciones_eliminar.jpeg)
+
+---
+
+### Tracking GPS
+![Enviar ping](images/miguel_endpoints/rappi2_tracking-gps_enviar-ping.jpeg)
+![Un ping (asignación)](images/miguel_endpoints/rappi2_tracking-gps_un-ping-asignacion.jpeg)
+![Último ping (asignación)](images/miguel_endpoints/rappi2_tracking-gps_ultimo-ping-asignacion.jpeg)
+![Estadística (asignación)](images/miguel_endpoints/rappi2_tracking-gps_estad%C3%ADstica-asignacion.jpeg)
+![Conductores (asignación)](images/miguel_endpoints/rappi2_tracking-gps_conductores-asignacion.jpeg)
+
+---
+
+### Reportes / KPIs
+![Dashboard KPIs](images/miguel_endpoints/rappi2_reportes_dashboard-kpis.jpeg)
+![KPIs operativos](images/miguel_endpoints/rappi2_reportes_kpis-operativos.jpeg)
+![SLA entregas](images/miguel_endpoints/rappi2_reportes_sla-entregas.jpeg)
+![Tiempos de entrega](images/miguel_endpoints/rappi2_reportes_tiempos-entrega.jpeg)
+![Ventas (serie temporal)](images/miguel_endpoints/rappi2_reportes_ventas-serie-temporal.jpeg)
+![Top clientes](images/miguel_endpoints/rappi2_reportes_top-clientes.jpeg)
+![Eficiencia conductor](images/miguel_endpoints/rappi2_reportes_eficiencia-conductor.jpeg)
+![Métricas conductor](images/miguel_endpoints/rappi2_reportes_metricas-conductor.jpeg)
+![Resumen incidencias](images/miguel_endpoints/rappi2_reportes_resumen-incidencias.jpeg)
+![Resumen notificaciones](images/miguel_endpoints/rappi2_reportes_resumen-notificaciones.jpeg)
+![Análisis evidencias](images/miguel_endpoints/rappi2_reportes_analisis-evidencias.jpeg)
+![Vista 360 (asignación)](images/miguel_endpoints/rappi2_reportes_vista-360-asignacion.jpeg)
+![Vista 360 (cliente)](images/miguel_endpoints/rappi2_reportes_vista-360-cliente.jpeg)
+
+---
+
+### Reportes / Rutas y Paradas
+![Planificar rutas](images/miguel_endpoints/rappi2_reportes-paradas_planificar-rutas.jpeg)
+![Listar rutas](images/miguel_endpoints/rappi2_reportes-paradas_listar-rutas.jpeg)
+![Obtener ruta](images/miguel_endpoints/rappi2_reportes-paradas_obtener-rutas.jpeg)
+![Crear rutas](images/miguel_endpoints/rappi2_reportes-paradas_crear-rutas.jpeg)
+![Actualizar rutas](images/miguel_endpoints/rappi2_reportes-paradas_actualizar-rutas.jpeg)
+![Eliminar rutas](images/miguel_endpoints/rappi2_reportes-paradas_eliminar-rutas.jpeg)
+
+![Listar paradas (rutas)](images/miguel_endpoints/rappi2_reportes-paradas_listar-paradas-rutas.jpeg)
+![Obtener parada (rutas)](images/miguel_endpoints/rappi2_reportes-paradas_obtener-paradas-rutas.jpeg)
+![Crear paradas (rutas)](images/miguel_endpoints/rappi2_reportes-paradas_crear-paradas-rutas.jpeg)
+![Actualizar paradas (rutas)](images/miguel_endpoints/rappi2_reportes-paradas_actualizar-paradas-rutas.jpeg)
+![Eliminar paradas (rutas)](images/miguel_endpoints/rappi2_reportes-paradas_eliminar-paradas-rutas.jpeg)
+
+---
