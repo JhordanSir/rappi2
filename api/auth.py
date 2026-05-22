@@ -149,24 +149,6 @@ async def logout(payload: LogoutRequest, db: AsyncSession = Depends(get_db)):
     return MessageResponse(message="Logout exitoso")
 
 
-@router.post("/logout-all", response_model=MessageResponse)
-async def logout_all(
-    current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Revoca todas las sesiones activas del usuario actual (log out from all devices)."""
-    activos = (
-        await db.execute(
-            select(Token).where(Token.usuario_id == current_user.id, Token.revocado == False)
-        )
-    ).scalars().all()
-    for t in activos:
-        t.revocado = True
-    if activos:
-        await db.commit()
-    return MessageResponse(message=f"Revocadas {len(activos)} sesion(es)")
-
-
 @router.get("/me", response_model=UsuarioResponse)
 async def me(current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(

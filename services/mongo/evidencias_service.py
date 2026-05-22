@@ -6,8 +6,6 @@ from fastapi import UploadFile
 from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
 from pymongo import ASCENDING
 
-from schemas.mongo_evidencias import ArchivoRef, EvidenciaIn
-
 COLLECTION = "evidencias"
 GRIDFS_BUCKET = "evidencias_files"
 
@@ -29,26 +27,6 @@ def _serialize(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     doc.setdefault("urls", [])
     doc.setdefault("archivos", [])
     return doc
-
-
-async def crear(
-    db: AsyncIOMotorDatabase,
-    incidencia_id: int,
-    evidencia: EvidenciaIn,
-    uploaded_by: Optional[int],
-) -> Dict[str, Any]:
-    doc = {
-        "incidencia_id": incidencia_id,
-        "urls": evidencia.urls,
-        "archivos": [],
-        "tipo": evidencia.tipo,
-        "descripcion": evidencia.descripcion,
-        "uploaded_by": uploaded_by,
-        "timestamp": datetime.now(timezone.utc),
-    }
-    result = await db[COLLECTION].insert_one(doc)
-    doc["_id"] = result.inserted_id
-    return _serialize(doc)
 
 
 async def crear_con_archivos(

@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import logging
 from typing import Optional, Set
@@ -62,18 +61,16 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         try:
             db = get_database()
-            asyncio.create_task(
-                auditoria_service.registrar(
-                    db,
-                    usuario_id=usuario_id,
-                    ruta=path,
-                    metodo=metodo,
-                    ip=ip,
-                    status_code=response.status_code,
-                    payload_hash=payload_hash,
-                )
+            await auditoria_service.registrar(
+                db,
+                usuario_id=usuario_id,
+                ruta=path,
+                metodo=metodo,
+                ip=ip,
+                status_code=response.status_code,
+                payload_hash=payload_hash,
             )
         except Exception as exc:
-            logger.warning("AuditMiddleware no pudo encolar registro: %s", exc)
+            logger.warning("AuditMiddleware no pudo registrar evento: %s", exc)
 
         return response

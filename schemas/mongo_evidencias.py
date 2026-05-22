@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from schemas.common import TipoEvidencia
 
@@ -11,14 +11,6 @@ class ArchivoRef(BaseModel):
     filename: str
     content_type: Optional[str] = None
     size: int
-
-
-class EvidenciaIn(BaseModel):
-    """Carga de evidencia por enlace externo (ej. S3 ya subido por el cliente)."""
-
-    urls: List[str] = Field(..., min_length=1)
-    tipo: TipoEvidencia
-    descripcion: Optional[str] = None
 
 
 class EvidenciaOut(BaseModel):

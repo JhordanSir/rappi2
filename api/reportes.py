@@ -579,3 +579,179 @@ async def reporte_notificaciones(
         "pendientes": pendientes,
         "por_destinatario": por_destinatario,
     }
+
+
+@router.get("/sla-entregas")
+async def reporte_sla_entregas(
+    desde: Optional[datetime] = None,
+    hasta: Optional[datetime] = None,
+    sla_minutos: int = Query(60, ge=1, le=24 * 60),
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permiso("reportes", "read")),
+) -> dict[str, Any]:
+    """% de asignaciones finalizadas dentro del SLA configurable + percentiles de duracion."""
+    duracion_s = func.extract("epoch", Asignacion.fecha_fin - Asignacion.fecha_inicio)
+    sla_s = sla_minutos * 60
+
+    base_filter = [
+        Asignacion.estado == "Finalizada",
+        Asignacion.fecha_inicio.isnot(None),
+        Asignacion.fecha_fin.isnot(None),
+    ]
+    if desde is not None:
+        base_filter.append(Asignacion.fecha_fin >= desde)
+    if hasta is not None:
+        base_filter.append(Asignacion.fecha_fin <= hasta)
+
+    stmt = select(
+        func.count(Asignacion.id).label("total"),
+        func.sum(case((duracion_s <= sla_s, 1), else_=0)).label("on_time"),
+        func.percentile_cont(0.5).within_group(duracion_s).label("p50_s"),
+        func.percentile_cont(0.95).within_group(duracion_s).label("p95_s"),
+    ).where(*base_filter)
+
+    row = (await db.execute(stmt)).one()
+    total = int(row.total or 0)
+    on_time = int(row.on_time or 0)
+    off_time = total - on_time
+    pct = (on_time / total * 100.0) if total else None
+
+    def _to_min(s):
+        return round(float(s) / 60.0, 2) if s is not None else None
+
+    return {
+        "desde": desde,
+        "hasta": hasta,
+        "sla_minutos": sla_minutos,
+        "total_entregas": total,
+        "on_time": on_time,
+        "off_time": off_time,
+        "on_time_pct": round(pct, 2) if pct is not None else None,
+        "p50_minutos": _to_min(row.p50_s),
+        "p95_minutos": _to_min(row.p95_s),
+    }
+
+
+@router.get("/conductores/eficiencia")
+async def reporte_conductores_eficiencia(
+    desde: Optional[datetime] = None,
+    hasta: Optional[datetime] = None,
+    limit: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permiso("reportes", "read")),
+) -> list[dict[str, Any]]:
+    """Por conductor activo: entregas finalizadas, horas activas, entregas/hora y tasa de incidencias."""
+    duracion_h = func.extract("epoch", Asignacion.fecha_fin - Asignacion.fecha_inicio) / 3600.0
+
+    finalizadas_pred = case(
+        (
+            (Asignacion.estado == "Finalizada")
+            & Asignacion.fecha_inicio.isnot(None)
+            & Asignacion.fecha_fin.isnot(None),
+            1,
+        ),
+        else_=0,
+    )
+    horas_pred = case(
+        (
+            (Asignacion.estado == "Finalizada")
+            & Asignacion.fecha_inicio.isnot(None)
+            & Asignacion.fecha_fin.isnot(None),
+            duracion_h,
+        ),
+        else_=0,
+    )
+
+    asignacion_filters = []
+    if desde is not None:
+        asignacion_filters.append(Asignacion.fecha_fin >= desde)
+    if hasta is not None:
+        asignacion_filters.append(Asignacion.fecha_fin <= hasta)
+
+    asignacion_join_cond = Asignacion.conductor_id == Conductor.id
+    if asignacion_filters:
+        from sqlalchemy import and_
+
+        asignacion_join_cond = and_(asignacion_join_cond, *asignacion_filters)
+
+    stmt = (
+        select(
+            Conductor.id,
+            Conductor.nombre,
+            func.coalesce(func.sum(finalizadas_pred), 0).label("entregas"),
+            func.coalesce(func.sum(horas_pred), 0).label("horas_activas"),
+            func.count(distinct(Incidencia.id)).label("incidencias"),
+            func.sum(case((Incidencia.severidad >= 3, 1), else_=0)).label("incidencias_severas"),
+        )
+        .outerjoin(Asignacion, asignacion_join_cond)
+        .outerjoin(Incidencia, Incidencia.asignacion_id == Asignacion.id)
+        .where(Conductor.activo == True)
+        .group_by(Conductor.id, Conductor.nombre)
+        .order_by(
+            (
+                func.coalesce(func.sum(finalizadas_pred), 0)
+                / func.nullif(func.coalesce(func.sum(horas_pred), 0), 0)
+            ).desc().nullslast()
+        )
+        .limit(limit)
+    )
+
+    rows = (await db.execute(stmt)).all()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        entregas = int(r.entregas or 0)
+        horas = float(r.horas_activas or 0)
+        incidencias = int(r.incidencias or 0)
+        out.append(
+            {
+                "conductor_id": r.id,
+                "nombre": r.nombre,
+                "entregas_finalizadas": entregas,
+                "horas_activas": round(horas, 2),
+                "entregas_por_hora": round(entregas / horas, 2) if horas > 0 else None,
+                "incidencias": incidencias,
+                "incidencias_severas": int(r.incidencias_severas or 0),
+                "tasa_incidencias": round(incidencias / entregas, 3) if entregas > 0 else None,
+            }
+        )
+    return out
+
+
+@router.get("/distribucion-geografica")
+async def reporte_distribucion_geografica(
+    desde: Optional[datetime] = None,
+    hasta: Optional[datetime] = None,
+    top: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permiso("reportes", "read")),
+) -> dict[str, Any]:
+    """Top N distritos por volumen de ordenes (origen y destino) en el rango."""
+    base_filter = []
+    if desde is not None:
+        base_filter.append(Orden.fecha_creacion >= desde)
+    if hasta is not None:
+        base_filter.append(Orden.fecha_creacion <= hasta)
+
+    async def _top(columna):
+        stmt = (
+            select(columna.label("distrito"), func.count(Orden.id).label("n"))
+            .where(columna.isnot(None), *base_filter)
+            .group_by(columna)
+            .order_by(func.count(Orden.id).desc())
+            .limit(top)
+        )
+        rows = (await db.execute(stmt)).all()
+        return [{"distrito": r.distrito, "ordenes": r.n} for r in rows]
+
+    total = (
+        await db.execute(select(func.count(Orden.id)).where(*base_filter))
+    ).scalar() or 0
+
+    return {
+        "desde": desde,
+        "hasta": hasta,
+        "top": top,
+        "total_ordenes": int(total),
+        "top_origen": await _top(Orden.distrito_origen),
+        "top_destino": await _top(Orden.distrito_destino),
+    }

@@ -10,7 +10,7 @@ from models.incidencias import Incidencia
 from models.usuarios import Usuario
 from schemas.common import TipoEvidencia
 from schemas.incidencias import IncidenciaCreate, IncidenciaResponse, IncidenciaUpdate
-from schemas.mongo_evidencias import EvidenciaIn, EvidenciaOut
+from schemas.mongo_evidencias import EvidenciaOut
 from services.mongo import evidencias_service
 
 router = APIRouter(prefix="/incidencias", tags=["incidencias"])
@@ -93,22 +93,6 @@ async def delete_incidencia(
     await evidencias_service.eliminar_por_incidencia(mongo_db, incidencia_id)
     await db.delete(incidencia)
     await db.commit()
-
-
-@router.post("/{incidencia_id}/evidencias", response_model=EvidenciaOut, status_code=status.HTTP_201_CREATED)
-async def add_evidencia(
-    incidencia_id: int,
-    payload: EvidenciaIn,
-    db: AsyncSession = Depends(get_db),
-    mongo_db = Depends(get_mongo_db),
-    current_user: Usuario = Depends(get_current_user),
-    _: object = Depends(require_permiso("incidencias", "write")),
-):
-    incidencia = await db.get(Incidencia, incidencia_id)
-    if incidencia is None:
-        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
-    doc = await evidencias_service.crear(mongo_db, incidencia_id, payload, current_user.id)
-    return doc
 
 
 @router.post(
