@@ -342,3 +342,103 @@ datos flexibles y consultar eventos del servicio de manera rápida.
 ---
 
 ## Evidencias Postman
+
+### Auth
+![Login](images/rappi2_auth_login.jpeg)
+![Register](images/rappi2_auth_register.jpeg)
+![Me](images/rappi2_auth_me.jpeg)
+![Refresh](images/rappi2_auth_refresh.jpeg)
+![Logout](images/rappi2_auth_logout.jpeg)
+
+---
+
+### Sesiones
+![Me sesiones](images/rappi2_sesiones_me_sesiones.jpeg)
+![Usuario sesiones](images/rappi2_sesiones_usuario_sesiones.jpeg)
+![Revocar](images/rappi2_sesiones_revocar.jpeg)
+![Revocar todas](images/rappi2_sesiones_revocar_todas.jpeg)
+
+---
+
+### Roles y permisos
+![Roles](images/rappi2_roles.jpeg)
+![Roles ID](images/rappi2_roles_id.jpeg)
+![Roles ID Patch](images/rappi2_roles_id_patch.jpeg)
+![Roles ID Delete](images/rappi2_roles_id_delete.jpeg)
+![Roles ID Permisos](images/rappi2_roles_id_permisos.jpeg)
+![Roles ID Permisos ID](images/rappi2_roles_id_permisos_id.jpeg)
+![Roles permisos all id](images/rappi2_roles_permisos_all_id.jpeg)
+![Roles permisos id](images/rappi2_roles_permisos_id.jpeg)
+![Roles post](images/rappi2_roles_post.jpeg)
+
+---
+
+### Usuarios
+![Usuarios](images/rappi2_usuarios.jpeg)
+![Usuarios ID](images/rappi2_usuarios_id.jpeg)
+![Usuarios ID Patch](images/rappi2_usuarios_id_patch.jpeg)
+![Usuarios ID Delete](images/rappi2_usuarios_id_delete.jpeg)
+![Usuarios post](images/rappi2_usuarios_post.jpeg)
+
+---
+
+### Clientes
+![Clientes](images/rappi2_clientes.jpeg)
+![Clientes post](images/rappi2_clientes_post.jpeg)
+![Clientes id](images/rappi2_clientes_id.jpeg)
+![Clientes id patch](images/rappi2_clientes_id%20patch.jpeg)
+![Clientes id delete](images/rappi2_clientes_id_delete.jpeg)
+![Clientes id direcciones](images/rappi2_clientes_id_direcciones.jpeg)
+![Clientes id direcciones post](images/rappi2_clientes_id_direcciones_post.jpeg)
+![Clientes id direcciones id](images/rappi2_clientes_id_direcciones_id.jpeg)
+![Clientes id direcciones id delete](images/rappi2_clientes_id_direcciones_id_delete.jpeg)
+
+---
+
+### Conductores
+![Conductores](images/rappi2_conductores.jpeg)
+![Conductores post](images/rappi2_conductores_post.jpeg)
+![Conductores id](images/rappi2_conductores_id.jpeg)
+![Conductores id patch](images/rappi2_conductores_id_patch.jpeg)
+![Conductores id delete](images/rappi2_conductores_id_delete.jpeg)
+![Conductores id vehiculo](images/rappi2_conductores_id_vehiculo.jpeg)
+
+---
+
+### Vehiculos
+![Vehiculos](images/rappi2_vehiculos.jpeg)
+![Vehiculos post](images/rappi2_vehiculos_post.jpeg)
+![Vehiculos placa](images/rappi2_vehiculos_placa.jpeg)
+![Vehiculos placa patch](images/rappi2_vehiculos_placa_patch.jpeg)
+![Vehiculos placa delete](images/rappi2_vehiculos_placa_delete.jpeg)
+
+---
+
+### Ordenes
+![Ordenes](images/rappi2_ordenes.jpeg)
+![Ordenes post](images/rappi2_ordenes_post.jpeg)
+![Ordenes id](images/rappi2_ordenes_id.jpeg)
+![Ordenes id patch](images/rappi2_ordenes_id_patch.jpeg)
+![Ordenes id delete](images/rappi2_ordenes_id_delete.jpeg)
+![Ordenes id pagos](images/rappi2_ordenes_id_pagos.jpeg)
+![Ordenes id facturas](images/rappi2_ordenes_id_facturas.jpeg)
+
+---
+
+### Pagos
+![Pagos](images/rappi2_pagos.jpeg)
+![Pagos post](images/rappi2_pagos_post.jpeg)
+![Pagos id](images/rappi2_pagos_id.jpeg)
+![Pagos id patch](images/rappi2_pagos_id_patch.jpeg)
+![Pagos id delete](images/rappi2_pagos_id_delete.jpeg)
+
+---
+
+### Facturas
+![Facturas](images/rappi2_facturas.jpeg)
+![Facturas post](images/rappi2_facturas_post.jpeg)
+![Facturas id](images/rappi2_facturas_id.jpeg)
+![Facturas id patch](images/rappi2_facturas_id_patch.jpeg)
+![Facturas delete](images/rappi2_facturas_delete.jpeg)
+
+---
