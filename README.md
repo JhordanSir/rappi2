@@ -69,7 +69,7 @@ Flujos principales del negocio:
 ### Jhordan Huamani Huamani
 
 **Rol:** Backend developer  
-**Porcentaje de participación:** 23%
+**Porcentaje de participación:** 100%
 
 **Aportes:**
 
