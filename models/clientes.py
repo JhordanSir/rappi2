@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -30,6 +30,8 @@ class ClienteDireccion(Base):
     ciudad = Column(String(80), nullable=True)
     estado = Column(String(80), nullable=True)
     pais = Column(String(80), nullable=True)
+    lat = Column(Numeric(9, 6), nullable=True)
+    lon = Column(Numeric(9, 6), nullable=True)
     es_principal = Column(Boolean, default=False, nullable=False)
 
     cliente = relationship("Cliente", back_populates="direcciones")

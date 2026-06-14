@@ -7,6 +7,7 @@ from core.database import get_db
 from models.clientes import Cliente
 from models.ordenes import Orden
 from schemas.ordenes import OrdenCreate, OrdenResponse, OrdenUpdate
+from services.geocoding import resolver_coords
 
 router = APIRouter(prefix="/ordenes", tags=["ordenes"])
 
@@ -39,7 +40,14 @@ async def create_orden(
     cliente = await db.get(Cliente, payload.cliente_id)
     if cliente is None or not cliente.activo:
         raise HTTPException(status_code=400, detail="cliente_id invalido o inactivo")
-    orden = Orden(**payload.model_dump(), estado="Pendiente")
+    data = payload.model_dump()
+    data["lat_origen"], data["lon_origen"] = await resolver_coords(
+        data.get("direccion_origen"), data.get("lat_origen"), data.get("lon_origen")
+    )
+    data["lat_destino"], data["lon_destino"] = await resolver_coords(
+        data.get("direccion_destino"), data.get("lat_destino"), data.get("lon_destino")
+    )
+    orden = Orden(**data, estado="Pendiente")
     db.add(orden)
     await db.commit()
     await db.refresh(orden)
@@ -68,7 +76,13 @@ async def update_orden(
     orden = await db.get(Orden, orden_id)
     if orden is None:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    update = payload.model_dump(exclude_unset=True)
+    # Re-geocodificar si cambia una direccion y no se enviaron coords explicitas.
+    if "direccion_origen" in update and update.get("lat_origen") is None and update.get("lon_origen") is None:
+        update["lat_origen"], update["lon_origen"] = await resolver_coords(update["direccion_origen"], None, None)
+    if "direccion_destino" in update and update.get("lat_destino") is None and update.get("lon_destino") is None:
+        update["lat_destino"], update["lon_destino"] = await resolver_coords(update["direccion_destino"], None, None)
+    for k, v in update.items():
         setattr(orden, k, v)
     await db.commit()
     await db.refresh(orden)

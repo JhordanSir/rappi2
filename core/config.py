@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     AUDIT_ENABLED: bool = True
 
     ORS_API_KEY: str = "your_ors_api_key_here"
+    GEOCODING_ENABLED: bool = True
 
     CORS_ORIGINS: List[str] = ["*"]
 

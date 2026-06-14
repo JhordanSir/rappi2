@@ -51,6 +51,98 @@ async def create_incidencia(
     return incidencia
 
 
+# --- Rutas de evidencias con prefijo fijo (declaradas antes que las variables /{incidencia_id}) ---
+
+@router.get("/evidencias/archivos/{file_id}")
+async def descargar_archivo_evidencia(
+    file_id: str,
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("incidencias", "read")),
+):
+    grid_out = await evidencias_service.abrir_descarga(mongo_db, file_id)
+    if grid_out is None:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    metadata = grid_out.metadata or {}
+    content_type = metadata.get("content_type") or "application/octet-stream"
+
+    async def _iter():
+        async for chunk in grid_out:
+            yield chunk
+
+    return StreamingResponse(
+        _iter(),
+        media_type=content_type,
+        headers={
+            "Content-Length": str(grid_out.length),
+            "Content-Disposition": f'inline; filename="{grid_out.filename}"',
+        },
+    )
+
+
+@router.get("/evidencias/{evidencia_id}", response_model=EvidenciaOut)
+async def get_evidencia(
+    evidencia_id: str,
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("incidencias", "read")),
+):
+    doc = await evidencias_service.obtener(mongo_db, evidencia_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Evidencia no encontrada")
+    return doc
+
+
+@router.delete("/evidencias/{evidencia_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_evidencia(
+    evidencia_id: str,
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("incidencias", "delete")),
+):
+    ok = await evidencias_service.eliminar(mongo_db, evidencia_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Evidencia no encontrada")
+
+
+# --- Rutas anidadas y por id de incidencia ---
+
+@router.post(
+    "/{incidencia_id}/evidencias/upload",
+    response_model=EvidenciaOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_evidencia(
+    incidencia_id: int,
+    tipo: TipoEvidencia = Form(...),
+    descripcion: str | None = Form(None),
+    archivos: list[UploadFile] = File(..., description="Uno o mas archivos (foto/video/audio/documento)"),
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    current_user: Usuario = Depends(get_current_user),
+    _: object = Depends(require_permiso("incidencias", "write")),
+):
+    """Sube archivos fisicos a GridFS y crea el documento de evidencia asociado."""
+    incidencia = await db.get(Incidencia, incidencia_id)
+    if incidencia is None:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+    return await evidencias_service.crear_con_archivos(
+        mongo_db,
+        incidencia_id=incidencia_id,
+        archivos=archivos,
+        tipo=tipo,
+        descripcion=descripcion,
+        uploaded_by=current_user.id,
+    )
+
+
+@router.get("/{incidencia_id}/evidencias", response_model=list[EvidenciaOut])
+async def list_evidencias(
+    incidencia_id: int,
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("incidencias", "read")),
+):
+    return await evidencias_service.listar_por_incidencia(mongo_db, incidencia_id)
+
+
 @router.get("/{incidencia_id}", response_model=IncidenciaResponse)
 async def get_incidencia(
     incidencia_id: int,
@@ -93,91 +185,3 @@ async def delete_incidencia(
     await evidencias_service.eliminar_por_incidencia(mongo_db, incidencia_id)
     await db.delete(incidencia)
     await db.commit()
-
-
-@router.post(
-    "/{incidencia_id}/evidencias/upload",
-    response_model=EvidenciaOut,
-    status_code=status.HTTP_201_CREATED,
-)
-async def upload_evidencia(
-    incidencia_id: int,
-    tipo: TipoEvidencia = Form(...),
-    descripcion: str | None = Form(None),
-    archivos: list[UploadFile] = File(..., description="Uno o mas archivos (foto/video/audio/documento)"),
-    db: AsyncSession = Depends(get_db),
-    mongo_db = Depends(get_mongo_db),
-    current_user: Usuario = Depends(get_current_user),
-    _: object = Depends(require_permiso("incidencias", "write")),
-):
-    """Sube archivos fisicos a GridFS y crea el documento de evidencia asociado."""
-    incidencia = await db.get(Incidencia, incidencia_id)
-    if incidencia is None:
-        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
-    return await evidencias_service.crear_con_archivos(
-        mongo_db,
-        incidencia_id=incidencia_id,
-        archivos=archivos,
-        tipo=tipo,
-        descripcion=descripcion,
-        uploaded_by=current_user.id,
-    )
-
-
-@router.get("/evidencias/archivos/{file_id}")
-async def descargar_archivo_evidencia(
-    file_id: str,
-    mongo_db = Depends(get_mongo_db),
-    _: object = Depends(require_permiso("incidencias", "read")),
-):
-    grid_out = await evidencias_service.abrir_descarga(mongo_db, file_id)
-    if grid_out is None:
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-
-    metadata = grid_out.metadata or {}
-    content_type = metadata.get("content_type") or "application/octet-stream"
-
-    async def _iter():
-        async for chunk in grid_out:
-            yield chunk
-
-    return StreamingResponse(
-        _iter(),
-        media_type=content_type,
-        headers={
-            "Content-Length": str(grid_out.length),
-            "Content-Disposition": f'inline; filename="{grid_out.filename}"',
-        },
-    )
-
-
-@router.get("/{incidencia_id}/evidencias", response_model=list[EvidenciaOut])
-async def list_evidencias(
-    incidencia_id: int,
-    mongo_db = Depends(get_mongo_db),
-    _: object = Depends(require_permiso("incidencias", "read")),
-):
-    return await evidencias_service.listar_por_incidencia(mongo_db, incidencia_id)
-
-
-@router.get("/evidencias/{evidencia_id}", response_model=EvidenciaOut)
-async def get_evidencia(
-    evidencia_id: str,
-    mongo_db = Depends(get_mongo_db),
-    _: object = Depends(require_permiso("incidencias", "read")),
-):
-    doc = await evidencias_service.obtener(mongo_db, evidencia_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Evidencia no encontrada")
-    return doc
-
-
-@router.delete("/evidencias/{evidencia_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_evidencia(
-    evidencia_id: str,
-    mongo_db = Depends(get_mongo_db),
-    _: object = Depends(require_permiso("incidencias", "delete")),
-):
-    ok = await evidencias_service.eliminar(mongo_db, evidencia_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Evidencia no encontrada")

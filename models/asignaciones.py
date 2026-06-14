@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -18,6 +18,9 @@ class Asignacion(Base):
     estado = Column(String(20), default="Asignada", nullable=False)
     fecha_inicio = Column(DateTime(timezone=True), nullable=True)
     fecha_fin = Column(DateTime(timezone=True), nullable=True)
+    entrega_lat = Column(Numeric(9, 6), nullable=True)
+    entrega_lon = Column(Numeric(9, 6), nullable=True)
+    entrega_receptor = Column(String(120), nullable=True)
 
     orden = relationship("Orden", back_populates="asignaciones")
     conductor = relationship("Conductor", back_populates="asignaciones")

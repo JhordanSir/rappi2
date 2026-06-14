@@ -44,11 +44,19 @@ async def get_mongo_db() -> AsyncIOMotorDatabase:
 
 
 async def ensure_all_indexes() -> None:
-    from services.mongo import tracking_service, geocerca_service, notificaciones_service, auditoria_service, evidencias_service
+    from services.mongo import (
+        tracking_service,
+        geocerca_service,
+        notificaciones_service,
+        auditoria_service,
+        evidencias_service,
+        entregas_service,
+    )
     db = get_database()
     await tracking_service.ensure_indexes(db)
     await geocerca_service.ensure_indexes(db)
     await notificaciones_service.ensure_indexes(db)
     await auditoria_service.ensure_indexes(db)
     await evidencias_service.ensure_indexes(db)
+    await entregas_service.ensure_indexes(db)
     logger.info("Indices MongoDB asegurados")

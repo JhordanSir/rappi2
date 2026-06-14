@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,11 +13,13 @@ from schemas.rutas import (
     ParadaCreate,
     ParadaResponse,
     ParadaUpdate,
+    ParadaVisitarRequest,
     PlanificarRutaRequest,
     RutaCreate,
     RutaResponse,
     RutaUpdate,
 )
+from services.geocoding import resolver_coords
 from services.mongo import geocerca_service
 from services.ors_service import ors_service
 
@@ -72,10 +74,26 @@ async def planificar_ruta(
     if orden is None:
         raise HTTPException(status_code=400, detail="orden_id invalido")
 
+    def _coord(payload_val, orden_val):
+        if payload_val is not None:
+            return payload_val
+        return float(orden_val) if orden_val is not None else None
+
+    origen_lon = _coord(payload.origen_lon, orden.lon_origen)
+    origen_lat = _coord(payload.origen_lat, orden.lat_origen)
+    destino_lon = _coord(payload.destino_lon, orden.lon_destino)
+    destino_lat = _coord(payload.destino_lat, orden.lat_destino)
+
+    if None in (origen_lon, origen_lat, destino_lon, destino_lat):
+        raise HTTPException(
+            status_code=400,
+            detail="Faltan coordenadas: envialas en el request o registra lat/lon de origen y destino en la orden",
+        )
+
     try:
         route_data = await ors_service.get_route(
-            payload.origen_lon, payload.origen_lat,
-            payload.destino_lon, payload.destino_lat,
+            origen_lon, origen_lat,
+            destino_lon, destino_lat,
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Error consultando ORS: {exc}")
@@ -84,6 +102,29 @@ async def planificar_ruta(
         orden_id=payload.orden_id,
         distancia_km=route_data["distancia_km"],
         tiempo_estimado=timedelta(seconds=route_data["tiempo_segundos"]),
+    )
+    # Paradas automaticas: punto de partida (origen) y punto de llegada (destino).
+    ruta.paradas.append(
+        Parada(
+            orden_id=orden.id,
+            direccion=orden.direccion_origen,
+            distrito=orden.distrito_origen,
+            lat=origen_lat,
+            lon=origen_lon,
+            secuencia=1,
+            estado="Pendiente",
+        )
+    )
+    ruta.paradas.append(
+        Parada(
+            orden_id=orden.id,
+            direccion=orden.direccion_destino,
+            distrito=orden.distrito_destino,
+            lat=destino_lat,
+            lon=destino_lon,
+            secuencia=2,
+            estado="Pendiente",
+        )
     )
     db.add(ruta)
     await db.commit()
@@ -192,7 +233,9 @@ async def add_parada(
     ruta = await db.get(RutaPlanificada, ruta_id)
     if ruta is None:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    parada = Parada(ruta_id=ruta_id, **payload.model_dump())
+    data = payload.model_dump()
+    data["lat"], data["lon"] = await resolver_coords(data.get("direccion"), data.get("lat"), data.get("lon"))
+    parada = Parada(ruta_id=ruta_id, **data)
     db.add(parada)
     await db.commit()
     await db.refresh(parada)
@@ -210,8 +253,34 @@ async def update_parada(
     parada = await db.get(Parada, parada_id)
     if parada is None or parada.ruta_id != ruta_id:
         raise HTTPException(status_code=404, detail="Parada no encontrada")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    update = payload.model_dump(exclude_unset=True)
+    if "direccion" in update and update.get("lat") is None and update.get("lon") is None:
+        update["lat"], update["lon"] = await resolver_coords(update["direccion"], None, None)
+    for k, v in update.items():
         setattr(parada, k, v)
+    await db.commit()
+    await db.refresh(parada)
+    return parada
+
+
+@router.patch("/{ruta_id}/paradas/{parada_id}/visitar", response_model=ParadaResponse)
+async def visitar_parada(
+    ruta_id: int,
+    parada_id: int,
+    payload: ParadaVisitarRequest,
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permiso("rutas", "write")),
+):
+    """Marca una parada como visitada, con la fecha y las coordenadas reales del momento."""
+    parada = await db.get(Parada, parada_id)
+    if parada is None or parada.ruta_id != ruta_id:
+        raise HTTPException(status_code=404, detail="Parada no encontrada")
+    parada.estado = "Visitada"
+    parada.fecha_paso = datetime.now(timezone.utc)
+    if payload.lat is not None:
+        parada.lat = payload.lat
+    if payload.lon is not None:
+        parada.lon = payload.lon
     await db.commit()
     await db.refresh(parada)
     return parada

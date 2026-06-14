@@ -5,6 +5,7 @@ class ORSService:
     def __init__(self):
         self.api_key = getattr(settings, "ORS_API_KEY", "dummy_key")
         self.base_url = "https://api.openrouteservice.org/v2/directions/driving-car"
+        self.geocode_url = "https://api.openrouteservice.org/geocode/search"
 
     async def get_route(self, lon_origen: float, lat_origen: float, lon_destino: float, lat_destino: float):
         """
@@ -37,5 +38,28 @@ class ORSService:
                 }
             else:
                 raise Exception(f"ORS API Error: {response.text}")
+
+    async def geocode(self, texto: str) -> tuple[float, float] | None:
+        """
+        Geocodifica una direccion de texto a coordenadas usando ORS.
+
+        Retorna (lon, lat) del primer resultado, o None si no hay coincidencias.
+        Lanza Exception si la API responde con error.
+        """
+        if not texto or not texto.strip():
+            return None
+
+        params = {"api_key": self.api_key, "text": texto, "size": 1}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(self.geocode_url, params=params)
+            if response.status_code != 200:
+                raise Exception(f"ORS Geocode Error: {response.text}")
+            data = response.json()
+            features = data.get("features") or []
+            if not features:
+                return None
+            lon, lat = features[0]["geometry"]["coordinates"][:2]
+            return float(lon), float(lat)
 
 ors_service = ORSService()

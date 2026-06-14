@@ -3,6 +3,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
+from schemas.common import lat_field, lon_field
+
 
 class ClienteDireccionBase(BaseModel):
     direccion: str
@@ -10,6 +12,8 @@ class ClienteDireccionBase(BaseModel):
     ciudad: Optional[str] = None
     estado: Optional[str] = None
     pais: Optional[str] = None
+    lat: Optional[float] = lat_field()
+    lon: Optional[float] = lon_field()
     es_principal: bool = False
 
 
@@ -23,6 +27,8 @@ class ClienteDireccionUpdate(BaseModel):
     ciudad: Optional[str] = None
     estado: Optional[str] = None
     pais: Optional[str] = None
+    lat: Optional[float] = lat_field()
+    lon: Optional[float] = lon_field()
     es_principal: Optional[bool] = None
 
 

@@ -4,13 +4,15 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from schemas.common import EstadoParada
+from schemas.common import EstadoParada, lat_field, lon_field
 
 
 class ParadaBase(BaseModel):
     orden_id: Optional[int] = None
     direccion: str
     distrito: Optional[str] = None
+    lat: Optional[float] = lat_field()
+    lon: Optional[float] = lon_field()
     secuencia: int
     estado: EstadoParada = "Pendiente"
 
@@ -24,6 +26,14 @@ class ParadaUpdate(BaseModel):
     fecha_paso: Optional[datetime] = None
     direccion: Optional[str] = None
     distrito: Optional[str] = None
+    lat: Optional[float] = lat_field()
+    lon: Optional[float] = lon_field()
+
+
+class ParadaVisitarRequest(BaseModel):
+    """Coordenadas reales del momento en que se visita la parada (opcionales)."""
+    lat: Optional[float] = lat_field()
+    lon: Optional[float] = lon_field()
 
 
 class ParadaResponse(ParadaBase):
@@ -58,9 +68,10 @@ class RutaResponse(RutaBase):
 
 class PlanificarRutaRequest(BaseModel):
     orden_id: int
-    origen_lon: float = Field(..., ge=-180, le=180)
-    origen_lat: float = Field(..., ge=-90, le=90)
-    destino_lon: float = Field(..., ge=-180, le=180)
-    destino_lat: float = Field(..., ge=-90, le=90)
+    # Coordenadas opcionales: si se omiten se toman de la orden (lat/lon origen y destino).
+    origen_lon: Optional[float] = lon_field()
+    origen_lat: Optional[float] = lat_field()
+    destino_lon: Optional[float] = lon_field()
+    destino_lat: Optional[float] = lat_field()
     generar_geocerca: bool = True
     tolerancia_metros: int = Field(50, ge=1, le=5000)

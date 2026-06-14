@@ -25,6 +25,8 @@ class Parada(Base):
     orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="SET NULL"), nullable=True)
     direccion = Column(String(200), nullable=False)
     distrito = Column(String(80), nullable=True)
+    lat = Column(Numeric(9, 6), nullable=True)
+    lon = Column(Numeric(9, 6), nullable=True)
     secuencia = Column(Integer, nullable=False)
     fecha_paso = Column(DateTime(timezone=True), nullable=True)
     estado = Column(String(20), default="Pendiente", nullable=False)

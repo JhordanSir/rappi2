@@ -12,8 +12,12 @@ class Orden(Base):
     estado = Column(String(20), default="Pendiente", nullable=False)
     direccion_origen = Column(String(200), nullable=False)
     distrito_origen = Column(String(80), nullable=True)
+    lat_origen = Column(Numeric(9, 6), nullable=True)
+    lon_origen = Column(Numeric(9, 6), nullable=True)
     direccion_destino = Column(String(200), nullable=False)
     distrito_destino = Column(String(80), nullable=True)
+    lat_destino = Column(Numeric(9, 6), nullable=True)
+    lon_destino = Column(Numeric(9, 6), nullable=True)
     fecha_creacion = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     total = Column(Numeric(10, 2), nullable=True)
 

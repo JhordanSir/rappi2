@@ -15,6 +15,7 @@ from schemas.clientes import (
     ClienteResponse,
     ClienteUpdate,
 )
+from services.geocoding import resolver_coords
 
 router = APIRouter(prefix="/clientes", tags=["clientes"])
 
@@ -123,7 +124,9 @@ async def add_direccion(
         )
         for dir_existente in existentes.scalars().all():
             dir_existente.es_principal = False
-    direccion = ClienteDireccion(cliente_id=cliente_id, **payload.model_dump())
+    data = payload.model_dump()
+    data["lat"], data["lon"] = await resolver_coords(data.get("direccion"), data.get("lat"), data.get("lon"))
+    direccion = ClienteDireccion(cliente_id=cliente_id, **data)
     db.add(direccion)
     await db.commit()
     await db.refresh(direccion)
@@ -162,6 +165,8 @@ async def update_direccion(
         )
         for d in existentes.scalars().all():
             d.es_principal = False
+    if "direccion" in update and update.get("lat") is None and update.get("lon") is None:
+        update["lat"], update["lon"] = await resolver_coords(update["direccion"], None, None)
     for k, v in update.items():
         setattr(direccion, k, v)
     await db.commit()
