@@ -31,12 +31,12 @@ services:
       retries: 10
 
   api:
-    build: .
+    build: ./backend
     command: sh -c "alembic upgrade head && python -m scripts.seed_admin && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      - ./backend:/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rappi2}
       - MONGO_URL=mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-admin}@mongodb:27017/
@@ -48,6 +48,13 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
 
 volumes:
   postgres_data:
