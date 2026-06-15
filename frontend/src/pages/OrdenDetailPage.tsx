@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Marker, Polygon, Polyline, Popup } from "react-leaflet";
 import {
   ArrowLeft, Route as RouteIcon, Gauge, Clock, Flag, Truck, User, Navigation, RefreshCw, TriangleAlert,
@@ -15,6 +16,7 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { MapView, type LatLng } from "@/components/map/MapView";
 import { pinIcon, liveIcon, COLORS } from "@/components/map/icons";
 import { formatCoord, formatDate, formatMoney, humanDuration, timeAgo, pointInPolygon } from "@/lib/utils";
+import { fetchRoadRoute } from "@/lib/routing";
 
 export default function OrdenDetailPage() {
   const { id } = useParams();
@@ -24,6 +26,24 @@ export default function OrdenDetailPage() {
   const { data: orden, isLoading } = useOrden(ordenId);
   const { data: seg, refetch, isFetching } = useSeguimiento(ordenId, 8000);
   const { data: pings } = usePings(seg?.asignacion?.id, { limit: 500 });
+
+  // Geometría real por calles: preferimos la que el backend ya guardó (autónoma);
+  // si no existe, la pedimos a OSRM desde el navegador como respaldo.
+  const geomCoords = seg?.ruta?.geometria?.coordinates;
+  const roadFromDb: LatLng[] | null =
+    geomCoords && geomCoords.length > 1 ? geomCoords.map((c) => [c[1], c[0]] as LatLng) : null;
+
+  const oLat = seg?.origen?.lat ?? null;
+  const oLon = seg?.origen?.lon ?? null;
+  const dLat = seg?.destino?.lat ?? null;
+  const dLon = seg?.destino?.lon ?? null;
+  const { data: roadFetched } = useQuery({
+    queryKey: ["road-route", oLat, oLon, dLat, dLon],
+    queryFn: () => fetchRoadRoute([oLat!, oLon!], [dLat!, dLon!]),
+    enabled: !roadFromDb && oLat != null && oLon != null && dLat != null && dLon != null,
+    staleTime: Infinity,
+  });
+  const roadRoute = roadFromDb ?? roadFetched ?? null;
 
   const planificar = useApiMutation(
     () => api.post("/rutas/planificar", { orden_id: ordenId, generar_geocerca: true, tolerancia_metros: 60 }),
@@ -116,11 +136,13 @@ export default function OrdenDetailPage() {
                   <Polygon key={i} positions={poly} pathOptions={{ color: "#6366f1", weight: 1.5, fillOpacity: 0.08 }} />
                 ) : null,
               )}
-              {routeLine.length === 2 && (
-                <Polyline positions={routeLine} pathOptions={{ color: "#94a3b8", weight: 2, dashArray: "4 8", opacity: 0.7 }} />
-              )}
+              {roadRoute && roadRoute.length > 1 ? (
+                <Polyline positions={roadRoute} pathOptions={{ color: "#0d9488", weight: 4, opacity: 0.9 }} />
+              ) : routeLine.length === 2 ? (
+                <Polyline positions={routeLine} pathOptions={{ color: "#0d9488", weight: 3, dashArray: "6 8", opacity: 0.4 }} />
+              ) : null}
               {trail.length > 1 && (
-                <Polyline positions={trail} pathOptions={{ color: "#0d9488", weight: 4, opacity: 0.85 }} />
+                <Polyline positions={trail} pathOptions={{ color: "#d97706", weight: 4, opacity: 0.9 }} />
               )}
               {origen?.lat != null && (
                 <Marker position={[origen.lat, origen.lon!]} icon={pinIcon(COLORS.origen)}>
@@ -149,6 +171,12 @@ export default function OrdenDetailPage() {
                 </Marker>
               )}
             </MapView>
+            <div className="flex flex-wrap items-center gap-4 border-t border-sillar-100 px-5 py-3 text-xs text-stone-500">
+              <LegendItem color="#0d9488" label="Ruta por calles" />
+              <LegendItem color="#d97706" label="Recorrido GPS" />
+              <LegendItem color="#10b981" label="Origen" dot />
+              <LegendItem color="#f43f5e" label="Destino" dot />
+            </div>
           </Card>
 
           {seg?.estadisticas && (seg.estadisticas.pings ?? 0) > 0 && (
@@ -208,6 +236,18 @@ export default function OrdenDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function LegendItem({ color, label, dot }: { color: string; label: string; dot?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={dot ? "h-2.5 w-2.5 rounded-full" : "h-1 w-5 rounded-full"}
+        style={{ backgroundColor: color }}
+      />
+      {label}
+    </span>
   );
 }
 

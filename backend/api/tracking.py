@@ -152,6 +152,7 @@ async def seguimiento_orden(
             id=ruta.id,
             distancia_km=_to_float(ruta.distancia_km),
             tiempo_estimado_segundos=ruta.tiempo_estimado.total_seconds() if ruta.tiempo_estimado is not None else None,
+            geometria=ruta.geometria,
         )
         paradas_out = [
             ParadaSeguimiento(

@@ -1,0 +1,14 @@
+# Desarrollo (se carga automáticamente con `docker compose up`).
+# Monta el código fuente para recarga en caliente y publica los puertos de BD.
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  mongodb:
+    ports:
+      - "27017:27017"
+
+  api:
+    volumes:
+      - ./backend:/app

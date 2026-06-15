@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import INTERVAL
 from sqlalchemy.orm import relationship
 
@@ -12,6 +12,8 @@ class RutaPlanificada(Base):
     orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"), nullable=False, index=True)
     distancia_km = Column(Numeric(8, 2), nullable=True)
     tiempo_estimado = Column(INTERVAL, nullable=True)
+    # Geometría real por calles (GeoJSON LineString) para dibujar la ruta sin depender del navegador
+    geometria = Column(JSON, nullable=True)
 
     orden = relationship("Orden", back_populates="rutas")
     paradas = relationship("Parada", back_populates="ruta", cascade="all, delete-orphan", order_by="Parada.secuencia")

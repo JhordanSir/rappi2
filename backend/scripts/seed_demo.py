@@ -13,6 +13,7 @@ import asyncio
 import random
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from sqlalchemy import delete, select
 
 from core.database import AsyncSessionLocal
@@ -76,6 +77,29 @@ def corredor(o, d, pad=0.013):
 def zona(center, r=0.012):
     la, lo = center
     return [[lo - r, la - r], [lo + r, la - r], [lo + r, la + r], [lo - r, la + r], [lo - r, la - r]]
+
+
+def resample(line, n):
+    """Reduce/ajusta una polilínea a n puntos uniformes por índice."""
+    if not line or len(line) <= n:
+        return line
+    step = (len(line) - 1) / (n - 1)
+    return [line[round(i * step)] for i in range(n)]
+
+
+async def road_points(o, d):
+    """Geometría real por calles (OSRM) como lista de (lat, lon). Fallback: línea recta."""
+    url = f"https://router.project-osrm.org/route/v1/driving/{o[1]},{o[0]};{d[1]},{d[0]}?overview=full&geometries=geojson"
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            r = await client.get(url)
+            coords = r.json()["routes"][0]["geometry"]["coordinates"]  # [lon, lat]
+        line = [(c[1], c[0]) for c in coords]
+        if len(line) >= 2:
+            return line
+    except Exception:
+        pass
+    return [punto(o, d, k / 13) for k in range(14)]
 
 
 async def limpiar(db):
@@ -195,6 +219,7 @@ async def main():
             await db.flush()  # asg.id disponible para los pings
             ruta_needed = esc in ("fin", "curso", "curso_alerta")
 
+            road = await road_points(co, cd)  # recorrido real por calles
             if esc == "fin":
                 ini = now - timedelta(days=random.randint(1, 6), minutes=random.randint(0, 200))
                 asg.estado = "Finalizada"
@@ -203,28 +228,30 @@ async def main():
                 asg.entrega_lat, asg.entrega_lon = cd[0], cd[1]
                 asg.entrega_receptor = random.choice(["Recepción", "Portería", "Sr. Gutiérrez", "Sra. Mamani"])
                 cond.disponibilidad = "Disponible"
-                # trail histórico completo origen->destino
+                # trail histórico completo origen->destino, siguiendo las calles
                 base = asg.fecha_inicio
-                for k in range(12):
-                    p = punto(co, cd, k / 11)
+                pts = resample(road, 12)
+                for k, p in enumerate(pts):
                     ping_docs.append(_ping(asg, cond, p, base + timedelta(minutes=k * 4), 18 + random.random() * 22))
             elif esc in ("curso", "curso_alerta"):
                 asg.estado = "EnCurso"
                 asg.fecha_inicio = now - timedelta(minutes=28)
                 cond.disponibilidad = "Ocupado"
-                # trail reciente (en vivo): origen -> ~70% del camino
-                for k in range(12):
-                    frac = (k / 11) * 0.7
-                    p = punto(co, cd, frac)
-                    if esc == "curso_alerta" and k >= 10:
+                # trail reciente (en vivo): ~70% del recorrido por calles
+                cut = max(2, int(len(road) * 0.7))
+                pts = resample(road[:cut], 12)
+                n = len(pts)
+                for k, p in enumerate(pts):
+                    if esc == "curso_alerta" and k >= n - 2:
                         p = (p[0] + 0.03, p[1] + 0.03)  # se sale del corredor -> dispara alerta
-                    ping_docs.append(_ping(asg, cond, p, now - timedelta(minutes=(11 - k) * 2.3), 12 + random.random() * 30))
+                    ping_docs.append(_ping(asg, cond, p, now - timedelta(minutes=(n - 1 - k) * 2.3), 12 + random.random() * 30))
             elif esc == "asignada":
                 asg.estado = "Asignada"
                 cond.disponibilidad = "Ocupado"
 
             if ruta_needed:
-                ruta = RutaPlanificada(orden_id=orden.id, distancia_km=round(random.uniform(3, 16), 2), tiempo_estimado=timedelta(minutes=random.randint(15, 55)))
+                geom = {"type": "LineString", "coordinates": [[p[1], p[0]] for p in road]}
+                ruta = RutaPlanificada(orden_id=orden.id, distancia_km=round(random.uniform(3, 16), 2), tiempo_estimado=timedelta(minutes=random.randint(15, 55)), geometria=geom)
                 visitado = esc == "fin"
                 ruta.paradas.append(Parada(orden_id=orden.id, direccion=orden.direccion_origen, distrito=do, lat=co[0], lon=co[1], secuencia=1, estado="Visitada", fecha_paso=asg.fecha_inicio))
                 ruta.paradas.append(Parada(orden_id=orden.id, direccion=orden.direccion_destino, distrito=dd, lat=cd[0], lon=cd[1], secuencia=2, estado="Visitada" if visitado else "Pendiente", fecha_paso=asg.fecha_fin if visitado else None))

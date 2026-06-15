@@ -1,3 +1,6 @@
+# Base (producción-segura). Para desarrollo se carga automáticamente
+# docker-compose.override.yml (bind-mount de código + puertos de BD).
+# Para producción:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 services:
   postgres:
     image: postgres:15-alpine
@@ -5,8 +8,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-rappi2}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -14,14 +15,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   mongodb:
     image: mongo:6.0
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-admin}
-    ports:
-      - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -29,14 +29,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   api:
     build: ./backend
     command: sh -c "alembic upgrade head && python -m scripts.seed_admin && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rappi2}
       - MONGO_URL=mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-admin}@mongodb:27017/
@@ -48,6 +47,7 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
@@ -55,6 +55,7 @@ services:
       - "5173:80"
     depends_on:
       - api
+    restart: unless-stopped
 
 volumes:
   postgres_data:

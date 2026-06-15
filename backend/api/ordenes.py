@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from api.dependencies import require_permiso
+from api.dependencies import get_mongo_db, require_permiso
 from core.database import get_db
 from models.clientes import Cliente
 from models.ordenes import Orden
 from schemas.ordenes import OrdenCreate, OrdenResponse, OrdenUpdate
 from services.geocoding import resolver_coords
+from services.route_planner import autogenerar_ruta
 
 router = APIRouter(prefix="/ordenes", tags=["ordenes"])
 
@@ -35,6 +36,7 @@ async def list_ordenes(
 async def create_orden(
     payload: OrdenCreate,
     db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
     _: object = Depends(require_permiso("ordenes", "write")),
 ):
     cliente = await db.get(Cliente, payload.cliente_id)
@@ -51,7 +53,11 @@ async def create_orden(
     db.add(orden)
     await db.commit()
     await db.refresh(orden)
-    return orden
+
+    # Genera la ruta por calles automáticamente (best-effort, no bloquea la creación).
+    oid = orden.id
+    await autogenerar_ruta(db, orden, mongo_db)
+    return await db.get(Orden, oid)
 
 
 @router.get("/{orden_id}", response_model=OrdenResponse)

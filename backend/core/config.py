@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     ORS_API_KEY: str = "your_ors_api_key_here"
     GEOCODING_ENABLED: bool = True
 
+    # Ruteo por calles (OSRM, sin API key) y autogeneración de rutas al crear órdenes
+    OSRM_URL: str = "https://router.project-osrm.org"
+    RUTA_AUTOGENERAR: bool = True
+
     CORS_ORIGINS: List[str] = ["*"]
 
     @field_validator("CORS_ORIGINS", mode="before")

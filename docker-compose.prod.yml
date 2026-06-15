@@ -1,0 +1,27 @@
+# Producción: ruteo por calles 100% autónomo (OSRM auto-hospedado) + ajustes prod.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+#
+# Al pasar -f explícito, NO se carga docker-compose.override.yml (sin bind-mount de
+# código ni puertos de BD expuestos). La 1ra vez OSRM descarga y preprocesa el mapa
+# (por defecto Perú; varios minutos y GB de RAM; se cachea en el volumen osrm_data).
+# Para una región más liviana, define OSRM_REGION_URL con un .osm.pbf más pequeño.
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    entrypoint: ["/bin/bash", "/osrm-entrypoint.sh"]
+    environment:
+      OSRM_REGION_URL: ${OSRM_REGION_URL:-https://download.geofabrik.de/south-america/peru-latest.osm.pbf}
+    volumes:
+      - ./osrm/entrypoint.sh:/osrm-entrypoint.sh:ro
+      - osrm_data:/data
+    restart: unless-stopped
+
+  api:
+    # Apunta al OSRM local y corre con varios workers.
+    environment:
+      - OSRM_URL=http://osrm:5000
+    command: sh -c "alembic upgrade head && python -m scripts.seed_admin && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${API_WORKERS:-2}"
+
+volumes:
+  osrm_data:

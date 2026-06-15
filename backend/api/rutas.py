@@ -21,7 +21,7 @@ from schemas.rutas import (
 )
 from services.geocoding import resolver_coords
 from services.mongo import geocerca_service
-from services.ors_service import ors_service
+from services.route_planner import generar_ruta_para_orden
 
 router = APIRouter(prefix="/rutas", tags=["rutas"])
 
@@ -91,54 +91,15 @@ async def planificar_ruta(
         )
 
     try:
-        route_data = await ors_service.get_route(
-            origen_lon, origen_lat,
-            destino_lon, destino_lat,
+        ruta = await generar_ruta_para_orden(
+            db, orden,
+            origen_lon, origen_lat, destino_lon, destino_lat,
+            mongo_db=mongo_db,
+            generar_geocerca=payload.generar_geocerca,
+            tolerancia_metros=payload.tolerancia_metros,
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Error consultando ORS: {exc}")
-
-    ruta = RutaPlanificada(
-        orden_id=payload.orden_id,
-        distancia_km=route_data["distancia_km"],
-        tiempo_estimado=timedelta(seconds=route_data["tiempo_segundos"]),
-    )
-    # Paradas automaticas: punto de partida (origen) y punto de llegada (destino).
-    ruta.paradas.append(
-        Parada(
-            orden_id=orden.id,
-            direccion=orden.direccion_origen,
-            distrito=orden.distrito_origen,
-            lat=origen_lat,
-            lon=origen_lon,
-            secuencia=1,
-            estado="Pendiente",
-        )
-    )
-    ruta.paradas.append(
-        Parada(
-            orden_id=orden.id,
-            direccion=orden.direccion_destino,
-            distrito=orden.distrito_destino,
-            lat=destino_lat,
-            lon=destino_lon,
-            secuencia=2,
-            estado="Pendiente",
-        )
-    )
-    db.add(ruta)
-    await db.commit()
-    await db.refresh(ruta)
-
-    if payload.generar_geocerca:
-        await geocerca_service.crear_desde_geometry(
-            mongo_db,
-            ruta_id=ruta.id,
-            orden_id=orden.id,
-            geometry=route_data["geometry"],
-            tolerance_m=payload.tolerancia_metros,
-            tipo="ruta_buffer",
-        )
+        raise HTTPException(status_code=502, detail=f"Error generando ruta: {exc}")
 
     result = await db.execute(
         select(RutaPlanificada).options(selectinload(RutaPlanificada.paradas)).where(RutaPlanificada.id == ruta.id)

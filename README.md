@@ -23,13 +23,36 @@ rappi2/
 
 ## Inicio rápido
 
+**Desarrollo** (carga automática de `docker-compose.override.yml`: código en caliente + puertos de BD):
+
 ```bash
 docker compose up --build                               # postgres + mongo + api + frontend
 docker compose exec api python -m scripts.seed_demo     # datos demo (Arequipa)
 ```
 
+**Producción** (sin bind-mount de código, BD no expuestas, OSRM auto-hospedado, workers):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+```
+
 - Frontend: <http://localhost:5173> · API / Swagger: <http://localhost:8000/docs>
 - Login: **admin / admin123**
+
+Archivos compose: `docker-compose.yml` (base producción-segura) · `docker-compose.override.yml`
+(dev, auto) · `docker-compose.prod.yml` (prod: OSRM + ajustes).
+
+### Rutas por calles
+
+Al crear una orden, su ruta (paradas, distancia, tiempo, geometría por calles y geocerca de
+corredor) se genera **automáticamente** con **OSRM** (no requiere API key) y la geometría se
+**guarda en la BD**, así el mapa la dibuja sin llamar a servicios externos.
+
+- **Dev**: usa el servidor OSRM público (liviano, sin preprocesar nada).
+- **Prod**: el override levanta **OSRM auto-hospedado** y el backend apunta a `http://osrm:5000`
+  (sin dependencias externas). La 1ra vez descarga y preprocesa el mapa (por defecto Perú; varios
+  minutos y GB de RAM; se cachea en el volumen `osrm_data`). Para una región más liviana define
+  `OSRM_REGION_URL` con un `.osm.pbf` de ciudad/país pequeño.
 
 ## Integrantes
 

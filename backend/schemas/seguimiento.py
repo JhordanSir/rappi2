@@ -44,6 +44,7 @@ class RutaSeguimiento(BaseModel):
     id: int
     distancia_km: Optional[float] = None
     tiempo_estimado_segundos: Optional[float] = None
+    geometria: Optional[Dict[str, Any]] = None  # GeoJSON LineString por calles
 
 
 class OrdenSeguimientoResponse(BaseModel):

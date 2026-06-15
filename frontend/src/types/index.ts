@@ -221,6 +221,7 @@ export interface RutaSeguimiento {
   id: number;
   distancia_km?: number | null;
   tiempo_estimado_segundos?: number | null;
+  geometria?: { type: string; coordinates: number[][] } | null;
 }
 
 export interface Geocerca {
