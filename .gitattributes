@@ -1,0 +1,4 @@
+# Los scripts shell deben conservar finales de línea LF aunque se editen en Windows;
+# de lo contrario el CRLF rompe el intérprete dentro de los contenedores Linux (p. ej. OSRM).
+*.sh text eol=lf
+osrm/entrypoint.sh text eol=lf

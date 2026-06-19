@@ -42,33 +42,25 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Username o email ya registrado")
 
-    rol_id = payload.rol_id
-    if rol_id is None:
-        rol_default = await _get_rol_default(db, "Cliente")
-        rol_id = rol_default.id
+    # El registro publico siempre es rol "Cliente"; se ignora cualquier rol
+    # enviado por el cliente para impedir auto-asignarse Admin/Despachador.
+    rol = await _get_rol_default(db, "Cliente")
 
-    rol_result = await db.execute(select(Rol).where(Rol.id == rol_id))
-    rol = rol_result.scalar_one_or_none()
-    if rol is None:
-        raise HTTPException(status_code=400, detail="rol_id invalido")
-
-    cliente_id = None
-    if rol.nombre == "Cliente":
-        cliente = Cliente(
-            nombre=payload.nombre or payload.username,
-            email=payload.email,
-            telefono=payload.telefono,
-            cc_id=payload.cc_id,
-        )
-        db.add(cliente)
-        await db.flush()
-        cliente_id = cliente.id
+    cliente = Cliente(
+        nombre=payload.nombre or payload.username,
+        email=payload.email,
+        telefono=payload.telefono,
+        cc_id=payload.cc_id,
+    )
+    db.add(cliente)
+    await db.flush()
+    cliente_id = cliente.id
 
     usuario = Usuario(
         username=payload.username,
         email=payload.email,
         password_hash=hash_password(payload.password),
-        rol_id=rol_id,
+        rol_id=rol.id,
         cliente_id=cliente_id,
     )
     db.add(usuario)

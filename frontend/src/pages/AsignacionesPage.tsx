@@ -113,12 +113,33 @@ export default function AsignacionesPage() {
   );
 }
 
+type Sugerencia = { conductor_id: number; nombre: string; vehiculo_placa: string | null; distancia_km: number | null; rating: number | null; total_calificaciones: number };
+
 function AsignacionForm({ onClose }: { onClose: () => void }) {
   const { data: ordenes } = useOrdenes({ estado: "Pendiente", limit: 200 });
   const { data: conductores } = useConductores({ disponibilidad: "Disponible", limit: 200 });
   const { data: vehiculos } = useVehiculos({ estado: "Operativo", limit: 200 });
   const [form, setForm] = useState({ orden_id: "", conductor_id: "", vehiculo_placa: "" });
+  const [sugerencias, setSugerencias] = useState<Sugerencia[] | null>(null);
+  const [loadingSug, setLoadingSug] = useState(false);
   const m = useApiMutation((body: any) => api.post("/asignaciones/", body), ["asignaciones", "ordenes", "conductores"]);
+
+  const sugerir = async () => {
+    if (!form.orden_id) return toast.error("Selecciona primero una orden");
+    setLoadingSug(true);
+    try {
+      const { data } = await api.get<Sugerencia[]>("/asignaciones/sugerencia", { params: { orden_id: Number(form.orden_id) } });
+      setSugerencias(data);
+      if (data.length === 0) toast("No hay conductores disponibles ahora", { icon: "ℹ️" });
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setLoadingSug(false);
+    }
+  };
+
+  const elegir = (s: Sugerencia) =>
+    setForm({ ...form, conductor_id: String(s.conductor_id), vehiculo_placa: s.vehiculo_placa ?? "" });
 
   const submit = () => {
     if (!form.orden_id || !form.conductor_id || !form.vehiculo_placa) return toast.error("Completa todos los campos");
@@ -138,11 +159,43 @@ function AsignacionForm({ onClose }: { onClose: () => void }) {
     >
       <div className="space-y-4">
         <Field label="Orden pendiente" required>
-          <Select value={form.orden_id} onChange={(e) => setForm({ ...form, orden_id: e.target.value })}>
+          <Select value={form.orden_id} onChange={(e) => { setForm({ ...form, orden_id: e.target.value }); setSugerencias(null); }}>
             <option value="">Seleccionar…</option>
             {ordenes?.map((o) => <option key={o.id} value={o.id}>#{o.id} · {o.direccion_destino}</option>)}
           </Select>
         </Field>
+
+        {/* Asignación híbrida: el sistema sugiere y el despachador confirma. */}
+        <div className="rounded-xl border border-brand-200 bg-brand-50/50 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-brand-800">Sugerencia automática</p>
+            <Button size="sm" variant="outline" loading={loadingSug} disabled={!form.orden_id} onClick={sugerir}>
+              Sugerir conductor
+            </Button>
+          </div>
+          {sugerencias && sugerencias.length > 0 && (
+            <ul className="mt-3 space-y-1.5">
+              {sugerencias.map((s) => (
+                <li key={s.conductor_id}>
+                  <button
+                    type="button"
+                    onClick={() => elegir(s)}
+                    className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      String(s.conductor_id) === form.conductor_id ? "border-brand-500 bg-white ring-1 ring-brand-300" : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="font-medium text-slate-700">{s.nombre} <span className="font-mono text-xs text-slate-400">{s.vehiculo_placa}</span></span>
+                    <span className="text-xs text-slate-500">
+                      {s.distancia_km != null ? `${s.distancia_km} km` : "sin ubic."}
+                      {s.rating != null && ` · ★ ${s.rating}`}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <Field label="Conductor disponible" required>
           <Select value={form.conductor_id} onChange={(e) => setForm({ ...form, conductor_id: e.target.value })}>
             <option value="">Seleccionar…</option>

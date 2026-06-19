@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 from api.dependencies import get_mongo_db, require_permiso
 from core.database import get_db
 from models.asignaciones import Asignacion
+from models.calificaciones import Calificacion
 from models.clientes import Cliente
 from models.conductores import Conductor
 from models.incidencias import Incidencia
@@ -96,7 +97,7 @@ async def dashboard(
 async def reporte_ventas(
     desde: Optional[datetime] = None,
     hasta: Optional[datetime] = None,
-    granularidad: str = Query("dia", regex="^(dia|mes)$"),
+    granularidad: str = Query("dia", pattern="^(dia|mes)$"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("reportes", "read")),
 ) -> dict[str, Any]:
@@ -193,9 +194,12 @@ async def reporte_conductores(
             func.sum(case((Asignacion.estado == "Finalizada", 1), else_=0)).label("finalizadas"),
             func.sum(case((Asignacion.estado == "EnCurso", 1), else_=0)).label("en_curso"),
             func.count(distinct(Incidencia.id)).label("incidencias"),
+            func.avg(Calificacion.puntaje).label("rating"),
+            func.count(distinct(Calificacion.id)).label("total_calificaciones"),
         )
         .outerjoin(Asignacion, Asignacion.conductor_id == Conductor.id)
         .outerjoin(Incidencia, Incidencia.asignacion_id == Asignacion.id)
+        .outerjoin(Calificacion, Calificacion.conductor_id == Conductor.id)
         .where(Conductor.activo == True)
         .group_by(Conductor.id, Conductor.nombre, Conductor.disponibilidad, Conductor.vehiculo_placa)
         .order_by(func.count(distinct(Asignacion.id)).desc())
@@ -211,6 +215,8 @@ async def reporte_conductores(
             "finalizadas": int(r.finalizadas or 0),
             "en_curso": int(r.en_curso or 0),
             "incidencias": r.incidencias,
+            "rating": round(float(r.rating), 2) if r.rating is not None else None,
+            "total_calificaciones": int(r.total_calificaciones or 0),
         }
         for r in rows
     ]

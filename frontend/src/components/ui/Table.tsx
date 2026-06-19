@@ -16,6 +16,7 @@ export function DataTable<T>({
   loading,
   empty,
   onRowClick,
+  footer,
 }: {
   columns: Column<T>[];
   rows: T[] | undefined;
@@ -23,9 +24,12 @@ export function DataTable<T>({
   loading?: boolean;
   empty?: ReactNode;
   onRowClick?: (row: T) => void;
+  /** Pie de tabla, p. ej. controles de paginación. */
+  footer?: ReactNode;
 }) {
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-left">
@@ -87,6 +91,8 @@ export function DataTable<T>({
           )}
         </tbody>
       </table>
+      </div>
+      {footer}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Truck, Navigation, ShieldCheck } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "@/auth/AuthContext";
@@ -107,6 +107,12 @@ export default function LoginPage() {
             Demo: <span className="font-semibold text-stone-700">admin</span> /{" "}
             <span className="font-semibold text-stone-700">admin123</span>
           </div>
+          <p className="mt-4 text-center text-sm text-stone-500">
+            ¿Eres cliente nuevo?{" "}
+            <Link to="/registro" className="font-semibold text-brand-700 hover:underline">
+              Crea tu cuenta
+            </Link>
+          </p>
         </div>
       </div>
     </div>

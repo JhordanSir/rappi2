@@ -1,15 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, ArrowRight, MapPin } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useOrdenes, useClientes, useApiMutation } from "@/api/hooks";
+import { useApiMutation, useClientes, useDebouncedValue, usePaginated } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { EstadoOrden, Orden } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/Table";
+import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
@@ -18,26 +19,34 @@ import { LocationPicker } from "@/components/map/MapView";
 import { formatMoney, formatDate, formatCoord } from "@/lib/utils";
 
 const ESTADOS: EstadoOrden[] = ["Pendiente", "En Proceso", "En Tránsito", "Entregado", "Cancelado"];
+const PAGE_SIZE = 20;
 
 export default function OrdenesPage() {
   const navigate = useNavigate();
   const { can, user } = useAuth();
   const [estado, setEstado] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
   // Aislamiento por rol Cliente: si el usuario está vinculado a un cliente, solo ve sus órdenes.
   const scope = user?.cliente_id ?? null;
-  const { data, isLoading } = useOrdenes({ limit: 200, ...(estado ? { estado } : {}), ...(scope ? { cliente_id: scope } : {}) });
+  const dq = useDebouncedValue(search.trim());
+
+  // Al cambiar filtros o búsqueda volvemos a la primera página.
+  useEffect(() => setPage(0), [estado, dq, scope]);
+
+  const { data, isLoading } = usePaginated<Orden>("ordenes", "/ordenes/", {
+    skip: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    ...(estado ? { estado } : {}),
+    ...(scope ? { cliente_id: scope } : {}),
+    ...(dq ? { q: dq } : {}),
+  });
   const { data: clientes } = useClientes({ limit: 200 }, can("clientes", "read"));
 
   const clienteName = (id: number) => clientes?.find((c) => c.id === id)?.nombre ?? `#${id}`;
-
-  const rows = useMemo(() => {
-    const q = search.toLowerCase();
-    return (data ?? []).filter(
-      (o) => !q || o.direccion_origen.toLowerCase().includes(q) || o.direccion_destino.toLowerCase().includes(q) || String(o.id).includes(q),
-    );
-  }, [data, search]);
+  const rows = data?.items;
+  const total = data?.total ?? 0;
 
   return (
     <div>
@@ -60,6 +69,7 @@ export default function OrdenesPage() {
           loading={isLoading}
           rowKey={(o) => o.id}
           onRowClick={(o) => navigate(`/ordenes/${o.id}`)}
+          footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
           columns={[
             { header: "ID", cell: (o) => <span className="font-mono text-xs font-semibold text-slate-500">#{o.id}</span> },
             { header: "Cliente", cell: (o) => <span className="font-medium text-slate-800">{clienteName(o.cliente_id)}</span> },

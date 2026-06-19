@@ -1,0 +1,15 @@
+{
+  "name": "Rappi2 Conductor",
+  "short_name": "Rappi2",
+  "description": "App de entregas para conductores Rappi2",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1c1917",
+  "theme_color": "#0d9488",
+  "icons": [
+    { "src": "/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

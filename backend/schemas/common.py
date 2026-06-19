@@ -13,7 +13,7 @@ def lon_field(default: Optional[float] = None):
     """Campo de longitud validado (-180..180). Usar en schemas con coordenadas."""
     return Field(default, ge=-180, le=180)
 
-EstadoOrden = Literal["Pendiente", "En Proceso", "En Tránsito", "Entregado", "Cancelado"]
+EstadoOrden = Literal["Pendiente de Pago", "Pendiente", "En Proceso", "En Tránsito", "Entregado", "Cancelado"]
 EstadoVehiculo = Literal["Operativo", "Mantenimiento", "Inactivo"]
 DisponibilidadConductor = Literal["Disponible", "Ocupado", "Inactivo"]
 EstadoAsignacion = Literal["Asignada", "EnCurso", "Finalizada", "Cancelada"]

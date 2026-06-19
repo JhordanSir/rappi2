@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.dependencies import get_current_user, get_mongo_db, require_permiso
+from core.realtime import canal_cliente, canal_usuario, publish
 from models.usuarios import Usuario
 from schemas.common import MessageResponse
 from schemas.mongo_notificaciones import NotificacionIn, NotificacionOut
@@ -17,7 +18,15 @@ async def crear_notificacion(
     mongo_db = Depends(get_mongo_db),
     _: object = Depends(require_permiso("notificaciones", "write")),
 ):
-    return await notificaciones_service.crear(mongo_db, payload)
+    notif = await notificaciones_service.crear(mongo_db, payload)
+    # Empuja la notificación al destinatario en tiempo real (campana).
+    canal = (
+        canal_cliente(payload.destinatario_id)
+        if payload.destinatario_tipo == "cliente"
+        else canal_usuario(payload.destinatario_id)
+    )
+    await publish(canal, {"tipo": "notificacion", "titulo": payload.titulo, "mensaje": payload.mensaje})
+    return notif
 
 
 @router.get("/mias", response_model=list[NotificacionOut])

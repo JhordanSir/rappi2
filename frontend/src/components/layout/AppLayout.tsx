@@ -3,9 +3,11 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { PageLoader } from "@/components/ui/Feedback";
+import { useRealtime } from "@/api/useRealtime";
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  useRealtime();
   return (
     <div className="flex h-screen overflow-hidden bg-sillar-100">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />

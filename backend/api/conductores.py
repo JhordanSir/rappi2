@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from api.dependencies import require_permiso
+from api.dependencies import get_current_user, require_permiso
 from core.database import get_db
 from models.conductores import Conductor
 from models.usuarios import Usuario
@@ -63,6 +63,22 @@ async def create_conductor(
         select(Conductor).options(selectinload(Conductor.vehiculo)).where(Conductor.id == conductor.id)
     )
     return result.scalar_one()
+
+
+@router.get("/me", response_model=ConductorResponse)
+async def get_mi_conductor(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    _: object = Depends(require_permiso("conductores", "read")),
+):
+    """Perfil del conductor autenticado (lo usa la app del conductor para arrancar)."""
+    result = await db.execute(
+        select(Conductor).options(selectinload(Conductor.vehiculo)).where(Conductor.usuario_id == current_user.id)
+    )
+    conductor = result.scalar_one_or_none()
+    if conductor is None:
+        raise HTTPException(status_code=404, detail="No tienes un perfil de conductor")
+    return conductor
 
 
 @router.get("/{conductor_id}", response_model=ConductorResponse)

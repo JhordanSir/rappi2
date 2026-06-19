@@ -9,13 +9,13 @@ class Asignacion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="CASCADE"), nullable=False, index=True)
-    conductor_id = Column(Integer, ForeignKey("conductores.id", ondelete="RESTRICT"), nullable=False)
+    conductor_id = Column(Integer, ForeignKey("conductores.id", ondelete="RESTRICT"), nullable=False, index=True)
     vehiculo_placa = Column(
         String(15),
         ForeignKey("vehiculos.placa", ondelete="RESTRICT", onupdate="CASCADE"),
         nullable=False,
     )
-    estado = Column(String(20), default="Asignada", nullable=False)
+    estado = Column(String(20), default="Asignada", nullable=False, index=True)
     fecha_inicio = Column(DateTime(timezone=True), nullable=True)
     fecha_fin = Column(DateTime(timezone=True), nullable=True)
     entrega_lat = Column(Numeric(9, 6), nullable=True)

@@ -9,6 +9,7 @@ from models.conductores import Conductor
 from models.asignaciones import Asignacion
 from models.rutas import Parada, RutaPlanificada
 from models.incidencias import Incidencia
+from models.calificaciones import Calificacion
 
 __all__ = [
     "Base",
@@ -21,4 +22,5 @@ __all__ = [
     "Asignacion",
     "RutaPlanificada", "Parada",
     "Incidencia",
+    "Calificacion",
 ]

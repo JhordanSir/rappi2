@@ -2,12 +2,21 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from api.dependencies import get_current_user, get_mongo_db, require_permiso
+from api.dependencies import (
+    UserScope,
+    get_current_user,
+    get_mongo_db,
+    get_scope,
+    require_permiso,
+)
 from core.database import get_db
+from core.realtime import CANAL_STAFF, canal_cliente, publish
 from models.asignaciones import Asignacion
+from models.calificaciones import Calificacion
 from models.conductores import Conductor
 from models.ordenes import Orden
 from models.usuarios import Usuario
@@ -18,11 +27,36 @@ from schemas.asignaciones import (
     AsignacionUpdate,
     EntregaOut,
     FinalizarAsignacionRequest,
+    SugerenciaConductor,
 )
 from schemas.common import TipoEvidencia
 from services.mongo import entregas_service, geocerca_service, tracking_service
+from services.mongo.tracking_service import _haversine_m
 
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
+
+
+def _solo_staff(scope: UserScope) -> None:
+    if not scope.ve_todo():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acción reservada al personal interno")
+
+
+def _asg_en_alcance(scope: UserScope, asignacion: Asignacion) -> bool:
+    """El conductor solo opera SUS asignaciones; el staff todas."""
+    if scope.ve_todo():
+        return True
+    if scope.conductor_id is not None:
+        return asignacion.conductor_id == scope.conductor_id
+    return False
+
+
+async def _avisar_estado_orden(db: AsyncSession, orden: Orden | None) -> None:
+    """Publica el cambio de estado de la orden a su cliente y a la operación."""
+    if orden is None:
+        return
+    evento = {"tipo": "orden", "accion": "estado", "orden_id": orden.id, "estado": orden.estado}
+    await publish(canal_cliente(orden.cliente_id), evento)
+    await publish(CANAL_STAFF, evento)
 
 
 @router.get("/", response_model=list[AsignacionResponse])
@@ -32,14 +66,20 @@ async def list_asignaciones(
     estado: str | None = None,
     conductor_id: int | None = None,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "read")),
 ):
     stmt = select(Asignacion)
+    if not scope.ve_todo():
+        # El conductor solo ve sus asignaciones; otros usuarios finales, ninguna.
+        if scope.conductor_id is None:
+            return []
+        stmt = stmt.where(Asignacion.conductor_id == scope.conductor_id)
+    elif conductor_id is not None:
+        stmt = stmt.where(Asignacion.conductor_id == conductor_id)
     if estado is not None:
         stmt = stmt.where(Asignacion.estado == estado)
-    if conductor_id is not None:
-        stmt = stmt.where(Asignacion.conductor_id == conductor_id)
-    stmt = stmt.offset(skip).limit(limit)
+    stmt = stmt.order_by(Asignacion.id.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -48,8 +88,10 @@ async def list_asignaciones(
 async def create_asignacion(
     payload: AsignacionCreate,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
+    _solo_staff(scope)
     orden = await db.get(Orden, payload.orden_id)
     if orden is None:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
@@ -77,14 +119,79 @@ async def create_asignacion(
     return asignacion
 
 
+@router.get("/sugerencia", response_model=list[SugerenciaConductor])
+async def sugerir_conductor(
+    orden_id: int,
+    limit: int = Query(5, le=20),
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    scope: UserScope = Depends(get_scope),
+    _: object = Depends(require_permiso("asignaciones", "read")),
+):
+    """Sugiere los mejores conductores para una orden: disponibles, con vehículo
+    operativo, ordenados por cercanía al origen (última posición GPS) y rating.
+    El despachador confirma creando la asignación con POST /asignaciones/."""
+    _solo_staff(scope)
+    orden = await db.get(Orden, orden_id)
+    if orden is None:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+
+    rows = (
+        await db.execute(
+            select(Conductor, Vehiculo)
+            .join(Vehiculo, Conductor.vehiculo_placa == Vehiculo.placa)
+            .where(
+                Conductor.activo.is_(True),
+                Conductor.disponibilidad == "Disponible",
+                Vehiculo.activo.is_(True),
+                Vehiculo.estado == "Operativo",
+            )
+        )
+    ).all()
+
+    lon_o = float(orden.lon_origen) if orden.lon_origen is not None else None
+    lat_o = float(orden.lat_origen) if orden.lat_origen is not None else None
+
+    sugerencias: list[SugerenciaConductor] = []
+    for cond, _veh in rows:
+        dist_km = None
+        if lon_o is not None and lat_o is not None:
+            pos = await tracking_service.ultima_posicion_conductor(mongo_db, cond.id)
+            if pos:
+                c = pos["location"]["coordinates"]
+                dist_km = round(_haversine_m(c[0], c[1], lon_o, lat_o) / 1000.0, 2)
+        prom, total = (
+            await db.execute(
+                select(func.avg(Calificacion.puntaje), func.count(Calificacion.id)).where(
+                    Calificacion.conductor_id == cond.id
+                )
+            )
+        ).one()
+        sugerencias.append(
+            SugerenciaConductor(
+                conductor_id=cond.id,
+                nombre=cond.nombre,
+                vehiculo_placa=cond.vehiculo_placa,
+                distancia_km=dist_km,
+                rating=round(float(prom), 2) if prom is not None else None,
+                total_calificaciones=total or 0,
+            )
+        )
+
+    # Más cercano primero; los sin posición conocida al final; desempate por mejor rating.
+    sugerencias.sort(key=lambda s: (s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
+    return sugerencias[:limit]
+
+
 @router.get("/{asignacion_id}", response_model=AsignacionResponse)
 async def get_asignacion(
     asignacion_id: int,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "read")),
 ):
     asignacion = await db.get(Asignacion, asignacion_id)
-    if asignacion is None:
+    if asignacion is None or not _asg_en_alcance(scope, asignacion):
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     return asignacion
 
@@ -94,8 +201,10 @@ async def update_asignacion(
     asignacion_id: int,
     payload: AsignacionUpdate,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
+    _solo_staff(scope)
     asignacion = await db.get(Asignacion, asignacion_id)
     if asignacion is None:
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
@@ -110,10 +219,11 @@ async def update_asignacion(
 async def iniciar_asignacion(
     asignacion_id: int,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
     asignacion = await db.get(Asignacion, asignacion_id)
-    if asignacion is None:
+    if asignacion is None or not _asg_en_alcance(scope, asignacion):
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     if asignacion.estado != "Asignada":
         raise HTTPException(status_code=400, detail=f"Asignacion no esta Asignada (actual: {asignacion.estado})")
@@ -124,6 +234,7 @@ async def iniciar_asignacion(
         orden.estado = "En Tránsito"
     await db.commit()
     await db.refresh(asignacion)
+    await _avisar_estado_orden(db, orden)
     return asignacion
 
 
@@ -132,10 +243,11 @@ async def finalizar_asignacion(
     asignacion_id: int,
     payload: FinalizarAsignacionRequest | None = None,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
     asignacion = await db.get(Asignacion, asignacion_id)
-    if asignacion is None:
+    if asignacion is None or not _asg_en_alcance(scope, asignacion):
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     if asignacion.estado != "EnCurso":
         raise HTTPException(status_code=400, detail=f"Asignacion no esta EnCurso (actual: {asignacion.estado})")
@@ -156,6 +268,7 @@ async def finalizar_asignacion(
         conductor.disponibilidad = "Disponible"
     await db.commit()
     await db.refresh(asignacion)
+    await _avisar_estado_orden(db, orden)
     return asignacion
 
 
@@ -175,11 +288,12 @@ async def upload_prueba_entrega(
     db: AsyncSession = Depends(get_db),
     mongo_db = Depends(get_mongo_db),
     current_user: Usuario = Depends(get_current_user),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
     """Sube la prueba de entrega (foto/firma) a GridFS y guarda coords/receptor en la asignacion."""
     asignacion = await db.get(Asignacion, asignacion_id)
-    if asignacion is None:
+    if asignacion is None or not _asg_en_alcance(scope, asignacion):
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     entrega = await entregas_service.crear_con_archivos(
         mongo_db,
@@ -205,9 +319,14 @@ async def upload_prueba_entrega(
 @router.get("/{asignacion_id}/prueba-entrega", response_model=list[EntregaOut])
 async def list_pruebas_entrega(
     asignacion_id: int,
+    db: AsyncSession = Depends(get_db),
     mongo_db = Depends(get_mongo_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "read")),
 ):
+    asignacion = await db.get(Asignacion, asignacion_id)
+    if asignacion is None or not _asg_en_alcance(scope, asignacion):
+        raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     return await entregas_service.listar_por_asignacion(mongo_db, asignacion_id)
 
 

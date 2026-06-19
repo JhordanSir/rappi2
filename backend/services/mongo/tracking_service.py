@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, GEOSPHERE
 
+from core.config import settings
 from schemas.mongo_tracking import GPSPingIn
 
 COLLECTION = "gps_tracking"
@@ -13,6 +14,30 @@ async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     coll = db[COLLECTION]
     await coll.create_index([("location", GEOSPHERE)], name="ix_gps_location")
     await coll.create_index([("asignacion_id", ASCENDING), ("timestamp", DESCENDING)], name="ix_gps_asignacion_ts")
+    # TTL: los pings GPS son alto volumen y se acumulan sin parar; expiran por
+    # antigüedad para que la colección no crezca indefinidamente en producción.
+    await _ensure_ttl_index(coll, settings.GPS_TRACKING_RETENCION_DIAS)
+
+
+async def _ensure_ttl_index(coll, retencion_dias: int) -> None:
+    """Crea/actualiza el índice TTL sobre `timestamp`. Como Mongo no permite
+    cambiar expireAfterSeconds recreando el mismo índice con otro valor, si ya
+    existe con un TTL distinto lo recreamos."""
+    name = "ix_gps_ttl"
+    expire = max(retencion_dias, 0) * 24 * 60 * 60
+    if retencion_dias <= 0:
+        # Retención ilimitada: nos aseguramos de que no quede un TTL viejo activo.
+        existing = await coll.index_information()
+        if name in existing:
+            await coll.drop_index(name)
+        return
+    existing = await coll.index_information()
+    actual = existing.get(name)
+    if actual is not None and actual.get("expireAfterSeconds") != expire:
+        await coll.drop_index(name)
+        actual = None
+    if actual is None:
+        await coll.create_index([("timestamp", ASCENDING)], name=name, expireAfterSeconds=expire)
 
 
 def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,6 +91,13 @@ async def ultimo_ping(db: AsyncIOMotorDatabase, asignacion_id: int) -> Optional[
 async def eliminar_por_asignacion(db: AsyncIOMotorDatabase, asignacion_id: int) -> int:
     result = await db[COLLECTION].delete_many({"asignacion_id": asignacion_id})
     return result.deleted_count
+
+
+async def ultima_posicion_conductor(db: AsyncIOMotorDatabase, conductor_id: int) -> Optional[Dict[str, Any]]:
+    """Último ping conocido de un conductor (en cualquier asignación). Sirve para
+    estimar su posición actual al sugerir asignaciones."""
+    doc = await db[COLLECTION].find_one({"conductor_id": conductor_id}, sort=[("timestamp", DESCENDING)])
+    return _serialize(doc) if doc else None
 
 
 async def conductores_cerca(

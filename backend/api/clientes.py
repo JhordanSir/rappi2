@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from api.dependencies import require_permiso
+from api.dependencies import UserScope, get_scope, require_permiso
 from core.database import get_db
 from models.clientes import Cliente, ClienteDireccion
 from schemas.clientes import (
@@ -20,15 +20,31 @@ from services.geocoding import resolver_coords
 router = APIRouter(prefix="/clientes", tags=["clientes"])
 
 
+def _puede_ver(scope: UserScope, cliente_id: int) -> bool:
+    """El cliente solo puede acceder a su propia ficha; el staff a cualquiera."""
+    return scope.ve_todo() or (scope.cliente_id is not None and scope.cliente_id == cliente_id)
+
+
+def _solo_staff(scope: UserScope) -> None:
+    if not scope.ve_todo():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acción reservada al personal interno")
+
+
 @router.get("/", response_model=list[ClienteResponse])
 async def list_clientes(
     skip: int = 0,
     limit: int = Query(50, le=200),
     activo: bool | None = True,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "read")),
 ):
     stmt = select(Cliente).options(selectinload(Cliente.direcciones))
+    if not scope.ve_todo():
+        # Un cliente solo se ve a sí mismo en el listado.
+        if scope.cliente_id is None:
+            return []
+        stmt = stmt.where(Cliente.id == scope.cliente_id)
     if activo is not None:
         stmt = stmt.where(Cliente.activo == activo)
     stmt = stmt.offset(skip).limit(limit)
@@ -40,8 +56,10 @@ async def list_clientes(
 async def create_cliente(
     payload: ClienteCreate,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "write")),
 ):
+    _solo_staff(scope)
     cliente = Cliente(**payload.model_dump())
     db.add(cliente)
     try:
@@ -60,8 +78,11 @@ async def create_cliente(
 async def get_cliente(
     cliente_id: int,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "read")),
 ):
+    if not _puede_ver(scope, cliente_id):
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
     result = await db.execute(
         select(Cliente).options(selectinload(Cliente.direcciones)).where(Cliente.id == cliente_id)
     )
@@ -76,8 +97,11 @@ async def update_cliente(
     cliente_id: int,
     payload: ClienteUpdate,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "write")),
 ):
+    if not _puede_ver(scope, cliente_id):
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
     cliente = await db.get(Cliente, cliente_id)
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -99,8 +123,10 @@ async def update_cliente(
 async def delete_cliente(
     cliente_id: int,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "delete")),
 ):
+    _solo_staff(scope)
     cliente = await db.get(Cliente, cliente_id)
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -113,8 +139,11 @@ async def add_direccion(
     cliente_id: int,
     payload: ClienteDireccionCreate,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "write")),
 ):
+    if not _puede_ver(scope, cliente_id):
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
     cliente = await db.get(Cliente, cliente_id)
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -137,8 +166,11 @@ async def add_direccion(
 async def list_direcciones(
     cliente_id: int,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "read")),
 ):
+    if not _puede_ver(scope, cliente_id):
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
     result = await db.execute(select(ClienteDireccion).where(ClienteDireccion.cliente_id == cliente_id))
     return result.scalars().all()
 
@@ -149,8 +181,11 @@ async def update_direccion(
     direccion_id: int,
     payload: ClienteDireccionUpdate,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "write")),
 ):
+    if not _puede_ver(scope, cliente_id):
+        raise HTTPException(status_code=404, detail="Direccion no encontrada")
     direccion = await db.get(ClienteDireccion, direccion_id)
     if direccion is None or direccion.cliente_id != cliente_id:
         raise HTTPException(status_code=404, detail="Direccion no encontrada")
@@ -179,8 +214,11 @@ async def delete_direccion(
     cliente_id: int,
     direccion_id: int,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "write")),
 ):
+    if not _puede_ver(scope, cliente_id):
+        raise HTTPException(status_code=404, detail="Direccion no encontrada")
     direccion = await db.get(ClienteDireccion, direccion_id)
     if direccion is None or direccion.cliente_id != cliente_id:
         raise HTTPException(status_code=404, detail="Direccion no encontrada")

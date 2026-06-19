@@ -42,6 +42,16 @@ class AsignacionResponse(AsignacionBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SugerenciaConductor(BaseModel):
+    """Candidato sugerido para asignar una orden (conductor disponible más cercano)."""
+    conductor_id: int
+    nombre: str
+    vehiculo_placa: Optional[str] = None
+    distancia_km: Optional[float] = None
+    rating: Optional[float] = None
+    total_calificaciones: int = 0
+
+
 class ArchivoEntregaRef(BaseModel):
     file_id: str
     filename: str

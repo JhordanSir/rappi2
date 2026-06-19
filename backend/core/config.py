@@ -17,6 +17,13 @@ class Settings(BaseSettings):
 
     AUDIT_ENABLED: bool = True
 
+    # Redis: backplane pub/sub para los eventos de tiempo real (SSE) entre workers.
+    REDIS_URL: str = "redis://redis:6379/0"
+
+    # Retención de pings GPS: TTL en la colección gps_tracking para que no crezca
+    # sin límite en producción (0 = sin expiración, conservar todo).
+    GPS_TRACKING_RETENCION_DIAS: int = 30
+
     ORS_API_KEY: str = "your_ors_api_key_here"
     GEOCODING_ENABLED: bool = True
 
@@ -24,7 +31,23 @@ class Settings(BaseSettings):
     OSRM_URL: str = "https://router.project-osrm.org"
     RUTA_AUTOGENERAR: bool = True
 
+    # MercadoPago (Checkout Pro, sandbox). Si MP_ACCESS_TOKEN está vacío, el checkout
+    # opera en "modo simulado" (confirma el pago localmente) para poder probar el flujo
+    # sin llaves; al cargar las llaves de prueba, se activa la pasarela real.
+    MP_ACCESS_TOKEN: str = ""
+    MP_PUBLIC_KEY: str = ""
+    MP_WEBHOOK_SECRET: str = ""
+    MONEDA: str = "PEN"
+    # Base pública del backend (para notification_url del webhook) y del frontend
+    # (para las back_urls de retorno tras pagar).
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
+
     CORS_ORIGINS: List[str] = ["*"]
+
+    @property
+    def mp_enabled(self) -> bool:
+        return bool(self.MP_ACCESS_TOKEN)
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

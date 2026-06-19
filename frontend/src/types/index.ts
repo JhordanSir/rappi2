@@ -1,6 +1,6 @@
 // Tipos alineados con los schemas Pydantic del backend (rappi2).
 
-export type EstadoOrden = "Pendiente" | "En Proceso" | "En Tránsito" | "Entregado" | "Cancelado";
+export type EstadoOrden = "Pendiente de Pago" | "Pendiente" | "En Proceso" | "En Tránsito" | "Entregado" | "Cancelado";
 export type EstadoVehiculo = "Operativo" | "Mantenimiento" | "Inactivo";
 export type DisponibilidadConductor = "Disponible" | "Ocupado" | "Inactivo";
 export type EstadoAsignacion = "Asignada" | "EnCurso" | "Finalizada" | "Cancelada";
@@ -260,6 +260,24 @@ export interface Notificacion {
   metadata: Record<string, any>;
   leida: boolean;
   fecha: string;
+}
+
+// ---- Calificaciones ----
+export interface Calificacion {
+  id: number;
+  orden_id: number;
+  conductor_id?: number | null;
+  cliente_id: number;
+  puntaje: number;
+  comentario?: string | null;
+  fecha: string;
+}
+
+export interface CheckoutResponse {
+  orden_id: number;
+  init_point: string;
+  preference_id?: string | null;
+  proveedor: string;
 }
 
 // ---- Auditoría ----

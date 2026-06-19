@@ -42,7 +42,14 @@ def _ip_cliente(request: Request) -> Optional[str]:
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if not settings.AUDIT_ENABLED or path in RUTAS_EXCLUIDAS or path.startswith("/static"):
+        # El stream SSE es una conexión persistente: no se audita (no aporta y evita
+        # mantener viva la cadena del middleware durante toda la conexión).
+        if (
+            not settings.AUDIT_ENABLED
+            or path in RUTAS_EXCLUIDAS
+            or path.startswith("/static")
+            or path.startswith("/api/realtime")
+        ):
             return await call_next(request)
 
         usuario_id = _extraer_usuario_id(request.headers.get("authorization"))

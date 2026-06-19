@@ -29,6 +29,7 @@ export function Badge({ tone = "gray", children, className }: { tone?: Tone; chi
 }
 
 const ORDEN_TONE: Record<string, Tone> = {
+  "Pendiente de Pago": "purple",
   Pendiente: "amber",
   "En Proceso": "blue",
   "En Tránsito": "indigo",

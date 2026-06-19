@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from core.config import settings
 from models.ordenes import Orden
@@ -41,6 +42,21 @@ async def generar_ruta_para_orden(
     geocerca de corredor. La distancia/tiempo provienen de OSRM. Puede lanzar si
     OSRM falla (antes de tocar la BD)."""
     data = await osrm_service.get_route(origen_lon, origen_lat, destino_lon, destino_lat)
+
+    # Replanificar reemplaza la ruta previa de la orden en vez de acumular rutas
+    # huérfanas: el seguimiento siempre apunta a una única ruta vigente.
+    previas = (
+        await db.execute(select(RutaPlanificada).where(RutaPlanificada.orden_id == orden.id))
+    ).scalars().all()
+    for previa in previas:
+        if mongo_db is not None:
+            try:
+                await geocerca_service.eliminar_por_ruta(mongo_db, previa.id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No se pudo eliminar geocerca de ruta previa %s: %s", previa.id, exc)
+        await db.delete(previa)
+    if previas:
+        await db.flush()
 
     ruta = RutaPlanificada(
         orden_id=orden.id,

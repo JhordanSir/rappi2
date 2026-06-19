@@ -16,8 +16,29 @@ import { formatCoord } from "@/lib/utils";
 
 function intervalToText(iso?: string | null): string {
   if (!iso) return "—";
-  // backend devuelve timedelta serializado como "H:MM:SS" o ISO; mostrar tal cual recortado
-  return String(iso).split(".")[0];
+  const raw = String(iso);
+
+  // El backend serializa el timedelta como duración ISO-8601 ("PT15M", "PT1H30M")
+  // o, como respaldo, "H:MM:SS". Lo normalizamos a segundos para mostrarlo legible.
+  let totalSec: number | null = null;
+  const iso8601 = raw.match(/^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/);
+  if (iso8601) {
+    const [, d, h, m, s] = iso8601;
+    totalSec = Number(d ?? 0) * 86400 + Number(h ?? 0) * 3600 + Number(m ?? 0) * 60 + Number(s ?? 0);
+  } else {
+    const parts = raw.split(".")[0].split(":").map(Number);
+    if (parts.length === 3 && parts.every((n) => !Number.isNaN(n))) {
+      totalSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+  }
+  if (totalSec === null) return raw; // formato desconocido: mostrar tal cual
+
+  const totalMin = Math.round(totalSec / 60);
+  if (totalMin < 1) return "<1 min";
+  if (totalMin < 60) return `${totalMin} min`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
 }
 
 export default function RutasPage() {

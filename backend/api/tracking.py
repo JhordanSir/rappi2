@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from api.dependencies import get_mongo_db, require_permiso
+from api.dependencies import UserScope, get_mongo_db, get_scope, orden_en_alcance, require_permiso
 from core.database import get_db
+from core.realtime import canal_cliente, publish
 from models.asignaciones import Asignacion
 from models.conductores import Conductor
 from models.ordenes import Orden
@@ -33,10 +34,31 @@ def _to_float(value) -> Optional[float]:
 @router.post("/tracking/ping", response_model=GPSPingOut, status_code=status.HTTP_201_CREATED)
 async def post_ping(
     payload: GPSPingIn,
+    db: AsyncSession = Depends(get_db),
     mongo_db = Depends(get_mongo_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("tracking", "write")),
 ):
+    asignacion = await db.get(Asignacion, payload.asignacion_id)
+    if asignacion is None:
+        raise HTTPException(status_code=404, detail="Asignacion no encontrada")
+    # El conductor solo emite GPS de SU asignación y mientras esté EnCurso; se fuerzan
+    # conductor/vehículo desde la asignación (no se confía en el payload del cliente).
+    if not scope.ve_todo():
+        if scope.conductor_id is None or asignacion.conductor_id != scope.conductor_id:
+            raise HTTPException(status_code=404, detail="Asignacion no encontrada")
+        if asignacion.estado != "EnCurso":
+            raise HTTPException(status_code=400, detail="La asignación no está en curso")
+        payload.conductor_id = asignacion.conductor_id
+        if asignacion.vehiculo_placa:
+            payload.vehiculo_placa = asignacion.vehiculo_placa
+
     doc = await tracking_service.crear_ping(mongo_db, payload)
+
+    # Empuja la nueva posición al cliente dueño de la orden (seguimiento en vivo).
+    orden = await db.get(Orden, asignacion.orden_id)
+    if orden is not None:
+        await publish(canal_cliente(orden.cliente_id), {"tipo": "orden", "accion": "posicion", "orden_id": orden.id})
     return doc
 
 
@@ -92,12 +114,14 @@ async def seguimiento_orden(
     orden_id: int,
     db: AsyncSession = Depends(get_db),
     mongo_db = Depends(get_mongo_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("tracking", "read")),
 ):
     """Vista agregada para la pantalla de trackeo: orden, asignacion activa, ultima
     posicion GPS, ruta, progreso de paradas y geocercas activas."""
     orden = await db.get(Orden, orden_id)
-    if orden is None:
+    # Solo el dueño (cliente), el conductor asignado o el staff pueden seguir la orden.
+    if orden is None or not await orden_en_alcance(db, scope, orden):
         raise HTTPException(status_code=404, detail="Orden no encontrada")
 
     # Asignacion activa: preferir la EnCurso, si no la mas reciente.

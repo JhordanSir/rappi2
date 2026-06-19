@@ -26,5 +26,15 @@ class PagoResponse(PagoBase):
     id: int
     orden_id: int
     fecha_pago: datetime
+    metodo: Optional[str] = None
+    proveedor: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CheckoutResponse(BaseModel):
+    """Respuesta del inicio de pago: URL a la que redirigir al cliente."""
+    orden_id: int
+    init_point: str
+    preference_id: Optional[str] = None
+    proveedor: str  # "mercadopago" | "simulado"

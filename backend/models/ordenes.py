@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -9,7 +9,7 @@ class Orden(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="CASCADE"), nullable=False, index=True)
-    estado = Column(String(20), default="Pendiente", nullable=False)
+    estado = Column(String(20), default="Pendiente", nullable=False, index=True)
     direccion_origen = Column(String(200), nullable=False)
     distrito_origen = Column(String(80), nullable=True)
     lat_origen = Column(Numeric(9, 6), nullable=True)
@@ -23,7 +23,7 @@ class Orden(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "estado IN ('Pendiente','En Proceso','En Tránsito','Entregado','Cancelado')",
+            "estado IN ('Pendiente de Pago','Pendiente','En Proceso','En Tránsito','Entregado','Cancelado')",
             name="orden_estado",
         ),
     )
@@ -33,6 +33,7 @@ class Orden(Base):
     facturas = relationship("Factura", back_populates="orden", cascade="all, delete-orphan")
     asignaciones = relationship("Asignacion", back_populates="orden", cascade="all, delete-orphan")
     rutas = relationship("RutaPlanificada", back_populates="orden", cascade="all, delete-orphan")
+    calificacion = relationship("Calificacion", back_populates="orden", uselist=False, cascade="all, delete-orphan")
 
 
 class Pago(Base):
@@ -44,6 +45,17 @@ class Pago(Base):
     monto = Column(Numeric(10, 2), nullable=False)
     estado = Column(String(20), default="Pendiente", nullable=False)
     referencia_banco = Column(String(80), nullable=True)
+    # Datos de la pasarela (MercadoPago Checkout Pro). proveedor=None => pago manual/staff.
+    metodo = Column(String(40), nullable=True)
+    proveedor = Column(String(40), nullable=True)
+    preference_id = Column(String(120), nullable=True)
+    external_id = Column(String(120), nullable=True)
+
+    # Los reportes filtran casi siempre por estado='Pagado' + rango de fecha_pago;
+    # un índice compuesto cubre ese patrón y el ordenamiento por fecha del listado.
+    __table_args__ = (
+        Index("ix_pagos_estado_fecha_pago", "estado", "fecha_pago"),
+    )
 
     orden = relationship("Orden", back_populates="pagos")
 

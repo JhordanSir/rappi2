@@ -10,10 +10,12 @@ class LoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
+    # Registro publico: SIEMPRE crea un usuario con rol "Cliente". No se acepta
+    # rol_id del cliente para evitar escalada de privilegios (las cuentas de staff
+    # se crean desde /api/usuarios por un Admin).
     username: str
     email: EmailStr
     password: str
-    rol_id: Optional[int] = None
     nombre: Optional[str] = None
     telefono: Optional[str] = None
     cc_id: Optional[str] = None

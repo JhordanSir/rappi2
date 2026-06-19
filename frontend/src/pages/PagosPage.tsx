@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { usePagos, useApiMutation } from "@/api/hooks";
+import { useApiMutation, usePaginated } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
-import type { EstadoPago } from "@/types";
+import type { EstadoPago, Pago } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/Table";
+import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
@@ -16,12 +17,21 @@ import { Toolbar } from "@/components/ui/Toolbar";
 import { formatMoney, formatDate } from "@/lib/utils";
 
 const ESTADOS: EstadoPago[] = ["Pendiente", "Pagado", "Fallido", "Reembolsado"];
+const PAGE_SIZE = 20;
 
 export default function PagosPage() {
   const { can } = useAuth();
   const [estado, setEstado] = useState("");
+  const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
-  const { data, isLoading } = usePagos({ limit: 200, ...(estado ? { estado } : {}) });
+  useEffect(() => setPage(0), [estado]);
+  const { data, isLoading } = usePaginated<Pago>("pagos", "/pagos", {
+    skip: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    ...(estado ? { estado } : {}),
+  });
+  const rows = data?.items;
+  const total = data?.total ?? 0;
   const writable = can("pagos", "write");
   const patch = useApiMutation((id: number) => api.patch(`/pagos/${id}`, { estado: "Pagado" }), ["pagos"]);
 
@@ -40,9 +50,10 @@ export default function PagosPage() {
       </Toolbar>
       <Card>
         <DataTable
-          rows={data}
+          rows={rows}
           loading={isLoading}
           rowKey={(p) => p.id}
+          footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
           columns={[
             { header: "ID", cell: (p) => <span className="font-mono text-xs text-slate-500">#{p.id}</span> },
             { header: "Orden", cell: (p) => <span className="font-mono text-xs">#{p.orden_id}</span> },

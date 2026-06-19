@@ -31,6 +31,16 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   api:
     build: ./backend
     command: sh -c "alembic upgrade head && python -m scripts.seed_admin && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
@@ -42,10 +52,13 @@ services:
       - MONGO_DB=${MONGO_DB:-rappi2_mongo}
       - SECRET_KEY=${SECRET_KEY:-change_me_to_a_random_64_char_string_in_production}
       - ORS_API_KEY=${ORS_API_KEY:-}
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       mongodb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 

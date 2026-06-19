@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type {
   Asignacion,
@@ -25,6 +26,35 @@ type Params = Record<string, any> | undefined;
 
 function get<T>(url: string, params?: Params) {
   return api.get<T>(url, { params }).then((r) => r.data);
+}
+
+export type Page<T> = { items: T[]; total: number };
+
+/**
+ * Listado paginado server-side: el body es la página (array) y el total de
+ * registros que matchean el filtro viaja en el header `X-Total-Count`.
+ * Mantiene la página anterior visible mientras carga la siguiente.
+ */
+export function usePaginated<T>(key: string, url: string, params?: Params) {
+  return useQuery({
+    queryKey: [key, params],
+    queryFn: async (): Promise<Page<T>> => {
+      const r = await api.get<T[]>(url, { params });
+      const total = Number(r.headers["x-total-count"] ?? r.data.length);
+      return { items: r.data, total: Number.isNaN(total) ? r.data.length : total };
+    },
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Devuelve `value` con un retraso, para no disparar una request por tecla. */
+export function useDebouncedValue<T>(value: T, delay = 350): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
 }
 
 // ---------------- Clientes ----------------

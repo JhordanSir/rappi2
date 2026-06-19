@@ -7,6 +7,7 @@ from api import (
     asignaciones,
     auditoria,
     auth,
+    calificaciones,
     clientes,
     conductores,
     facturas,
@@ -14,6 +15,7 @@ from api import (
     notificaciones,
     ordenes,
     pagos,
+    realtime,
     reportes,
     roles,
     rutas,
@@ -24,6 +26,7 @@ from api import (
 )
 from core.config import settings
 from core.mongo import close_mongo_connection, connect_to_mongo, ensure_all_indexes
+from core.realtime import close_redis
 from middleware.audit import AuditMiddleware
 
 
@@ -37,6 +40,7 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).warning("No se pudieron crear indices MongoDB: %s", exc)
     yield
     await close_mongo_connection()
+    await close_redis()
 
 
 app = FastAPI(
@@ -52,6 +56,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Necesario para que el navegador exponga el total de paginación a JS.
+    expose_headers=["X-Total-Count"],
 )
 app.add_middleware(AuditMiddleware)
 
@@ -74,6 +80,8 @@ app.include_router(tracking.router, prefix=PREFIX)
 app.include_router(notificaciones.router, prefix=PREFIX)
 app.include_router(auditoria.router, prefix=PREFIX)
 app.include_router(reportes.router, prefix=PREFIX)
+app.include_router(calificaciones.router, prefix=PREFIX)
+app.include_router(realtime.router, prefix=PREFIX)
 
 
 @app.get("/", tags=["root"])

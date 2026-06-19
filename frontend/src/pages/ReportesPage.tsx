@@ -108,6 +108,16 @@ export default function ReportesPage() {
               { header: "Finalizadas", align: "right", cell: (c) => <Badge tone="green">{c.finalizadas}</Badge> },
               { header: "En curso", align: "right", cell: (c) => <Badge tone="indigo">{c.en_curso}</Badge> },
               { header: "Incidencias", align: "right", cell: (c) => <Badge tone={c.incidencias > 0 ? "red" : "gray"}>{c.incidencias}</Badge> },
+              {
+                header: "Rating",
+                align: "right",
+                cell: (c) =>
+                  c.rating != null ? (
+                    <Badge tone="amber">★ {c.rating} <span className="text-[10px] opacity-70">({c.total_calificaciones})</span></Badge>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  ),
+              },
             ]}
             empty="Sin datos de conductores"
           />

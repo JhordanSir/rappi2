@@ -1,4 +1,5 @@
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -12,10 +13,16 @@ from sqlalchemy.orm import selectinload
 from core.database import get_db
 from core.mongo import get_mongo_db as _get_mongo_db
 from core.security import decode_access_token
+from models.asignaciones import Asignacion
+from models.conductores import Conductor
+from models.ordenes import Orden
 from models.usuarios import Usuario
 from models.roles import Permiso
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+
+# Roles internos con visibilidad total (no se les aplica filtro de fila).
+STAFF_ROLES = {"Admin", "Despachador"}
 
 _PERMISO_CACHE: dict[int, tuple[float, list[tuple[str, str]]]] = {}
 _PERMISO_TTL_SECONDS = 60
@@ -80,3 +87,52 @@ def require_permiso(recurso: str, accion: str):
 
 async def get_mongo_db() -> AsyncIOMotorDatabase:
     return await _get_mongo_db()
+
+
+@dataclass
+class UserScope:
+    """Alcance de fila del usuario autenticado. Los endpoints lo usan para
+    restringir cada quien a SUS datos. El staff (Admin/Despachador) ve todo."""
+
+    user: Usuario
+    is_staff: bool
+    cliente_id: Optional[int]
+    conductor_id: Optional[int]
+
+    def ve_todo(self) -> bool:
+        return self.is_staff
+
+
+async def get_scope(
+    user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserScope:
+    rol_nombre = user.rol.nombre if user.rol is not None else None
+    is_staff = rol_nombre in STAFF_ROLES
+    cliente_id = user.cliente_id
+    conductor_id: Optional[int] = None
+    # Solo resolvemos el conductor cuando no es staff ni cliente (una query indexada).
+    if not is_staff and cliente_id is None:
+        conductor_id = (
+            await db.execute(select(Conductor.id).where(Conductor.usuario_id == user.id))
+        ).scalar_one_or_none()
+    return UserScope(user=user, is_staff=is_staff, cliente_id=cliente_id, conductor_id=conductor_id)
+
+
+async def orden_en_alcance(db: AsyncSession, scope: UserScope, orden: Orden) -> bool:
+    """True si el usuario puede ver/operar esta orden segun su alcance de fila:
+    staff todo, cliente solo las suyas, conductor solo las que tiene asignadas."""
+    if scope.ve_todo():
+        return True
+    if scope.cliente_id is not None:
+        return orden.cliente_id == scope.cliente_id
+    if scope.conductor_id is not None:
+        asignada = (
+            await db.execute(
+                select(Asignacion.id)
+                .where(Asignacion.orden_id == orden.id, Asignacion.conductor_id == scope.conductor_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return asignada is not None
+    return False
