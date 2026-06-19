@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import UserScope, get_mongo_db, get_scope, orden_en_alcance, require_permiso
 from core.database import get_db
-from core.realtime import canal_cliente, publish
+from core.realtime import CANAL_STAFF, canal_cliente, publish
 from models.asignaciones import Asignacion
 from models.conductores import Conductor
 from models.ordenes import Orden
@@ -22,7 +22,8 @@ from schemas.seguimiento import (
     PuntoGeo,
     RutaSeguimiento,
 )
-from services.mongo import geocerca_service, tracking_service
+from services import incidencias_service
+from services.mongo import entregas_service, geocerca_service, tracking_service
 
 router = APIRouter(tags=["tracking"])
 
@@ -59,6 +60,25 @@ async def post_ping(
     orden = await db.get(Orden, asignacion.orden_id)
     if orden is not None:
         await publish(canal_cliente(orden.cliente_id), {"tipo": "orden", "accion": "posicion", "orden_id": orden.id})
+
+    # Detección de desvío: si el punto cae fuera del corredor activo de la orden, se crea
+    # una incidencia automática (anti-spam) y se alerta a la operación en vivo.
+    if asignacion.estado == "EnCurso" and orden is not None:
+        try:
+            fuera = await geocerca_service.punto_fuera_de_corredor(
+                mongo_db, orden.id, payload.lon, payload.lat
+            )
+            if fuera:
+                inc = await incidencias_service.crear_incidencia_desvio(db, asignacion.id)
+                if inc is not None:
+                    await publish(CANAL_STAFF, {
+                        "tipo": "incidencia", "accion": "desvio",
+                        "incidencia_id": inc.id, "asignacion_id": asignacion.id,
+                        "orden_id": orden.id, "severidad": inc.severidad,
+                    })
+        except Exception as exc:  # noqa: BLE001 - la detección nunca debe romper el ping
+            import logging
+            logging.getLogger(__name__).warning("Fallo detección de desvío: %s", exc)
     return doc
 
 
@@ -137,6 +157,7 @@ async def seguimiento_orden(
     asignacion_out = None
     posicion = None
     estadisticas = None
+    entregas_out: list = []
     if asignacion is not None:
         conductor = await db.get(Conductor, asignacion.conductor_id)
         asignacion_out = AsignacionSeguimiento(
@@ -159,6 +180,7 @@ async def seguimiento_orden(
                 timestamp=ultimo["timestamp"],
             )
         estadisticas = await tracking_service.estadisticas_asignacion(mongo_db, asignacion.id)
+        entregas_out = await entregas_service.listar_por_asignacion(mongo_db, asignacion.id)
 
     # Ruta mas reciente de la orden + sus paradas + geocercas activas.
     result = await db.execute(
@@ -214,6 +236,39 @@ async def seguimiento_orden(
         paradas=paradas_out,
         geocercas=geocercas,
         estadisticas=estadisticas,
+        entregas=entregas_out,
+    )
+
+
+@router.get("/tracking/orden/{orden_id}/evidencia/{file_id}")
+async def descargar_evidencia_seguimiento(
+    orden_id: int,
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    scope: UserScope = Depends(get_scope),
+    _: object = Depends(require_permiso("tracking", "read")),
+):
+    """Descarga una foto de prueba de entrega, accesible para el dueño de la orden
+    (cliente), el conductor asignado o el staff (mismo alcance que el seguimiento)."""
+    from fastapi.responses import StreamingResponse
+
+    orden = await db.get(Orden, orden_id)
+    if orden is None or not await orden_en_alcance(db, scope, orden):
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    grid_out = await entregas_service.abrir_descarga(mongo_db, file_id)
+    if grid_out is None:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    metadata = grid_out.metadata or {}
+
+    async def _iter():
+        async for chunk in grid_out:
+            yield chunk
+
+    return StreamingResponse(
+        _iter(),
+        media_type=metadata.get("content_type") or "application/octet-stream",
+        headers={"Content-Length": str(grid_out.length), "Content-Disposition": f'inline; filename="{grid_out.filename}"'},
     )
 
 

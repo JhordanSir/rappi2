@@ -32,6 +32,10 @@ export default function IncidenciasPage() {
   const { data, isLoading } = useIncidencias({ limit: 200, ...(sevMin ? { severidad_min: Number(sevMin) } : {}) });
   const writable = can("incidencias", "write");
   const del = useApiMutation((id: number) => api.delete(`/incidencias/${id}`), ["incidencias"]);
+  const setSev = useApiMutation(
+    ({ id, severidad }: { id: number; severidad: number }) => api.patch(`/incidencias/${id}`, { severidad }),
+    ["incidencias"],
+  );
 
   const rows = useMemo(
     () => (data ?? []).filter((i) => !search || i.tipo.toLowerCase().includes(search.toLowerCase()) || String(i.asignacion_id).includes(search)),
@@ -61,7 +65,18 @@ export default function IncidenciasPage() {
             { header: "ID", cell: (i) => <span className="font-mono text-xs text-slate-500">#{i.id}</span> },
             { header: "Tipo", cell: (i) => <span className="inline-flex items-center gap-1.5 font-medium text-slate-800"><TriangleAlert className="h-4 w-4 text-amber-500" /> {i.tipo}</span> },
             { header: "Asignación", cell: (i) => <span className="font-mono text-xs">#{i.asignacion_id}</span> },
-            { header: "Severidad", cell: (i) => <Badge tone={sevTone(i.severidad) as any}>Nivel {i.severidad}</Badge> },
+            { header: "Origen", cell: (i) => <Badge tone={i.origen === "automatica" ? "red" : i.origen === "admin" ? "indigo" : "gray"}>{i.origen === "automatica" ? "Automática" : i.origen === "admin" ? "Central" : "Chofer"}</Badge> },
+            { header: "Severidad", cell: (i) => (
+              writable ? (
+                <Select
+                  className="h-8 w-auto"
+                  value={String(i.severidad)}
+                  onChange={(e) => setSev.mutate({ id: i.id, severidad: Number(e.target.value) }, { onError: (err) => toast.error(apiError(err)) })}
+                >
+                  {[1, 2, 3, 4, 5].map((s) => <option key={s} value={s}>Nivel {s}</option>)}
+                </Select>
+              ) : <Badge tone={sevTone(i.severidad) as any}>Nivel {i.severidad}</Badge>
+            ) },
             { header: "Notas", cell: (i) => <span className="line-clamp-1 max-w-[220px] text-slate-500">{i.notas || "—"}</span> },
             { header: "Fecha", cell: (i) => <span className="text-slate-500">{formatDate(i.fecha)}</span> },
             { header: "", align: "right", cell: (i) => (
@@ -91,13 +106,13 @@ export default function IncidenciasPage() {
 
 function IncidenciaForm({ onClose }: { onClose: () => void }) {
   const { data: asignaciones } = useAsignaciones({ limit: 200 });
-  const [form, setForm] = useState({ asignacion_id: "", tipo: "", severidad: "3", notas: "" });
+  const [form, setForm] = useState({ asignacion_id: "", tipo: "", notas: "" });
   const m = useApiMutation((body: any) => api.post("/incidencias/", body), ["incidencias"]);
 
   const submit = () => {
     if (!form.asignacion_id || !form.tipo) return toast.error("Asignación y tipo son obligatorios");
     m.mutate(
-      { asignacion_id: Number(form.asignacion_id), tipo: form.tipo, severidad: Number(form.severidad), notas: form.notas || null },
+      { asignacion_id: Number(form.asignacion_id), tipo: form.tipo, notas: form.notas || null },
       { onSuccess: () => { toast.success("Incidencia registrada"); onClose(); }, onError: (e) => toast.error(apiError(e)) },
     );
   };
@@ -116,15 +131,9 @@ function IncidenciaForm({ onClose }: { onClose: () => void }) {
             {asignaciones?.map((a) => <option key={a.id} value={a.id}>#{a.id} · Orden #{a.orden_id} · {a.estado}</option>)}
           </Select>
         </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Tipo" required><Input value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} placeholder="Retraso, Daño…" /></Field>
-          <Field label="Severidad">
-            <Select value={form.severidad} onChange={(e) => setForm({ ...form, severidad: e.target.value })}>
-              {[1, 2, 3, 4, 5].map((s) => <option key={s} value={s}>Nivel {s}</option>)}
-            </Select>
-          </Field>
-        </div>
+        <Field label="Tipo" required><Input value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} placeholder="Retraso, Daño…" /></Field>
         <Field label="Notas"><Textarea value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} placeholder="Describe el problema…" /></Field>
+        <p className="text-xs text-slate-400">La severidad se asigna automáticamente por tipo y puede ajustarse en la lista.</p>
       </div>
     </Modal>
   );

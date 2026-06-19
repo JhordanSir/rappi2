@@ -66,6 +66,8 @@ export interface Cliente {
 }
 
 // ---- Ordenes ----
+export type NivelServicio = "estandar" | "express" | "urgente";
+
 export interface Orden {
   id: number;
   cliente_id: number;
@@ -80,6 +82,46 @@ export interface Orden {
   lon_destino?: number | null;
   total?: number | null;
   fecha_creacion: string;
+  peso_kg?: number | null;
+  largo_cm?: number | null;
+  ancho_cm?: number | null;
+  alto_cm?: number | null;
+  nivel_servicio?: NivelServicio;
+  programado_para?: string | null;
+  ajuste_monto?: number | null;
+  ajuste_motivo?: string | null;
+}
+
+export interface Cotizacion {
+  distancia_km: number;
+  tiempo_min: number;
+  peso_cobrable_kg: number;
+  subtotal: number;
+  multiplicador_servicio: number;
+  recargo_horario_pct: number;
+  total: number;
+  moneda: string;
+}
+
+export interface TarifaConfig {
+  id: number;
+  moneda: string;
+  tarifa_base: number;
+  precio_km: number;
+  precio_min: number;
+  precio_kg: number;
+  factor_volumetrico: number;
+  minimo: number;
+  mult_estandar: number;
+  mult_express: number;
+  mult_urgente: number;
+  recargo_nocturno_pct: number;
+  nocturno_desde: number;
+  nocturno_hasta: number;
+  recargo_pico_pct: number;
+  pico_ventanas: number[][];
+  recargo_finde_pct: number;
+  actualizado_en: string;
 }
 
 // ---- Vehiculos / Conductores ----
@@ -145,6 +187,7 @@ export interface Incidencia {
   asignacion_id: number;
   tipo: string;
   severidad: number;
+  origen: "chofer" | "automatica" | "admin";
   notas?: string | null;
   evidencia_url?: string | null;
   fecha: string;
@@ -235,6 +278,18 @@ export interface Geocerca {
   created_at: string;
 }
 
+export interface EntregaEvidencia {
+  id: string;
+  asignacion_id: number;
+  archivos: ArchivoRef[];
+  tipo: TipoEvidencia;
+  descripcion?: string | null;
+  lat?: number | null;
+  lon?: number | null;
+  receptor?: string | null;
+  timestamp: string;
+}
+
 export interface OrdenSeguimiento {
   orden_id: number;
   estado: string;
@@ -247,6 +302,7 @@ export interface OrdenSeguimiento {
   paradas: ParadaSeguimiento[];
   geocercas: Geocerca[];
   estadisticas?: Record<string, any> | null;
+  entregas?: EntregaEvidencia[];
 }
 
 // ---- Notificaciones ----

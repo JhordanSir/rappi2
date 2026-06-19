@@ -87,6 +87,20 @@ async def contiene_punto(db: AsyncIOMotorDatabase, lon: float, lat: float) -> Li
     return [_serialize(doc) async for doc in cursor]
 
 
+async def punto_fuera_de_corredor(db: AsyncIOMotorDatabase, orden_id: int, lon: float, lat: float) -> bool:
+    """True si la orden tiene un corredor de ruta activo y el punto cae FUERA de él.
+    Si la orden no tiene corredor definido, devuelve False (no hay de qué desviarse)."""
+    base = {"orden_id": orden_id, "tipo": "ruta_buffer", "activa": True}
+    total = await db[COLLECTION].count_documents(base)
+    if total == 0:
+        return False
+    dentro = await db[COLLECTION].count_documents({
+        **base,
+        "geometry": {"$geoIntersects": {"$geometry": {"type": "Point", "coordinates": [lon, lat]}}},
+    })
+    return dentro == 0
+
+
 async def desactivar(db: AsyncIOMotorDatabase, geocerca_id: str) -> bool:
     try:
         oid = ObjectId(geocerca_id)

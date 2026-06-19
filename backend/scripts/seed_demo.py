@@ -51,7 +51,7 @@ DISTRITOS = list(AQP.items())
 PERMS = {
     "Despachador": (
         [(r, a) for r in ["ordenes", "asignaciones", "rutas", "tracking", "clientes", "conductores", "vehiculos", "incidencias", "geocercas"] for a in ["read", "write"]]
-        + [("reportes", "read"), ("pagos", "read"), ("facturas", "read"), ("entregas", "read"), ("calificaciones", "read"), ("notificaciones", "read")]
+        + [("reportes", "read"), ("pagos", "read"), ("facturas", "read"), ("entregas", "read"), ("calificaciones", "read"), ("notificaciones", "read"), ("tarifa", "read")]
     ),
     "Conductor": [("tracking", "read"), ("tracking", "write"), ("ordenes", "read"), ("asignaciones", "read"), ("asignaciones", "write"), ("rutas", "read"), ("rutas", "write"), ("incidencias", "read"), ("incidencias", "write"), ("entregas", "read"), ("entregas", "write"), ("conductores", "read"), ("calificaciones", "read"), ("notificaciones", "read")],
     "Cliente": [("ordenes", "read"), ("ordenes", "write"), ("tracking", "read"), ("pagos", "read"), ("pagos", "write"), ("clientes", "read"), ("clientes", "write"), ("incidencias", "read"), ("incidencias", "write"), ("calificaciones", "read"), ("calificaciones", "write"), ("facturas", "read"), ("notificaciones", "read")],

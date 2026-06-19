@@ -39,7 +39,8 @@ export default function AsignacionDetalle() {
   const [showFin, setShowFin] = useState(false);
   const [showInc, setShowInc] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [inc, setInc] = useState({ tipo: TIPOS_INCIDENCIA[0], severidad: 3, notas: "" });
+  const [pruebaSubida, setPruebaSubida] = useState(false);
+  const [inc, setInc] = useState({ tipo: TIPOS_INCIDENCIA[0], notas: "" });
 
   const { last, error: gpsError } = useGpsTracking({
     asignacionId,
@@ -72,11 +73,14 @@ export default function AsignacionDetalle() {
       if (last) { fd.append("lat", String(last.lat)); fd.append("lon", String(last.lon)); }
       fd.append("archivos", file);
       await api.post(`/asignaciones/${asignacionId}/prueba-entrega`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setPruebaSubida(true);
       toast.success("Prueba de entrega subida");
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };
 
   const finalizar = () => {
+    if (!receptor.trim()) return toast.error("Indica quién recibió la entrega");
+    if (!pruebaSubida) return toast.error("Sube la prueba de entrega (foto) antes de finalizar");
     setBusy(true);
     const done = async (lat: number | null, lon: number | null) => {
       try {
@@ -98,10 +102,10 @@ export default function AsignacionDetalle() {
   const reportarIncidencia = async () => {
     setBusy(true);
     try {
-      await api.post("/incidencias/", { asignacion_id: asignacionId, tipo: inc.tipo, severidad: inc.severidad, notas: inc.notas || null });
+      await api.post("/incidencias/", { asignacion_id: asignacionId, tipo: inc.tipo, notas: inc.notas || null });
       toast.success("Incidencia reportada");
       setShowInc(false);
-      setInc({ tipo: TIPOS_INCIDENCIA[0], severidad: 3, notas: "" });
+      setInc({ tipo: TIPOS_INCIDENCIA[0], notas: "" });
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };
 
@@ -159,8 +163,8 @@ export default function AsignacionDetalle() {
           {gpsError && <p className="text-xs text-rose-400">{gpsError}</p>}
 
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" loading={busy} onClick={() => fileRef.current?.click()}>
-              <Camera className="h-4 w-4" /> Prueba de entrega
+            <Button variant={pruebaSubida ? "success" : "outline"} loading={busy} onClick={() => fileRef.current?.click()}>
+              <Camera className="h-4 w-4" /> {pruebaSubida ? "Prueba subida ✓" : "Prueba de entrega"}
             </Button>
             <Button variant="outline" onClick={() => setShowInc((v) => !v)}>
               <AlertTriangle className="h-4 w-4" /> Incidencia
@@ -182,14 +186,10 @@ export default function AsignacionDetalle() {
                   {TIPOS_INCIDENCIA.map((t) => <option key={t} value={t}>{t}</option>)}
                 </Select>
               </Field>
-              <Field label={<span className="text-stone-200">Severidad (1-5)</span>}>
-                <Select value={String(inc.severidad)} onChange={(e) => setInc({ ...inc, severidad: Number(e.target.value) })}>
-                  {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-                </Select>
-              </Field>
               <Field label={<span className="text-stone-200">Notas</span>}>
                 <Input value={inc.notas} onChange={(e) => setInc({ ...inc, notas: e.target.value })} placeholder="Describe el problema" />
               </Field>
+              <p className="text-xs text-stone-400">La gravedad la evalúa la central, no el conductor.</p>
               <Button className="w-full" variant="danger" loading={busy} onClick={reportarIncidencia}>Reportar</Button>
             </div>
           )}
@@ -200,9 +200,12 @@ export default function AsignacionDetalle() {
             </Button>
           ) : (
             <div className="space-y-3 rounded-2xl border border-emerald-700/40 bg-emerald-900/20 p-4">
-              <Field label={<span className="text-stone-200">¿Quién recibió? (opcional)</span>}>
+              <Field label={<span className="text-stone-200">¿Quién recibió?</span>} required>
                 <Input value={receptor} onChange={(e) => setReceptor(e.target.value)} placeholder="Nombre del receptor" />
               </Field>
+              {!pruebaSubida && (
+                <p className="text-xs text-amber-400">Falta subir la foto de prueba de entrega.</p>
+              )}
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => setShowFin(false)}>Cancelar</Button>
                 <Button variant="success" className="flex-1" loading={busy} onClick={finalizar}>Confirmar entrega</Button>

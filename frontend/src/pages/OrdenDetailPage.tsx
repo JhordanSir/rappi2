@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Marker, Polygon, Polyline, Popup } from "react-leaflet";
 import {
-  ArrowLeft, Route as RouteIcon, Gauge, Clock, Flag, Truck, User, Navigation, RefreshCw, TriangleAlert,
+  ArrowLeft, Route as RouteIcon, Gauge, Clock, Flag, Truck, User, Navigation, RefreshCw, TriangleAlert, Camera, MapPin,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
@@ -49,8 +49,15 @@ export default function OrdenDetailPage() {
     () => api.post("/rutas/planificar", { orden_id: ordenId, generar_geocerca: true, tolerancia_metros: 60 }),
     [],
   );
+  const optimizar = useApiMutation(
+    (rutaId: number) => api.post(`/rutas/${rutaId}/optimizar`),
+    [],
+  );
 
   if (isLoading || !orden) return <PageLoader />;
+
+  // Una orden entregada o cancelada ya no se (re)planifica.
+  const terminal = orden.estado === "Entregado" || orden.estado === "Cancelado";
 
   const origen = seg?.origen;
   const destino = seg?.destino;
@@ -89,6 +96,14 @@ export default function OrdenDetailPage() {
       onError: (e) => toast.error(apiError(e)),
     });
 
+  const entregas = seg?.entregas ?? [];
+  const abrirArchivo = async (fileId: string) => {
+    try {
+      const res = await api.get(`/asignaciones/prueba-entrega/archivos/${fileId}`, { responseType: "blob" });
+      window.open(URL.createObjectURL(res.data as Blob), "_blank");
+    } catch (e) { toast.error(apiError(e)); }
+  };
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -106,9 +121,23 @@ export default function OrdenDetailPage() {
           <Button variant="outline" onClick={() => refetch()} loading={isFetching}>
             <RefreshCw className="h-4 w-4" /> Actualizar
           </Button>
-          {can("rutas", "write") && (
+          {can("rutas", "write") && !terminal && (
             <Button onClick={doPlanificar} loading={planificar.isPending}>
               <RouteIcon className="h-4 w-4" /> {seg?.ruta ? "Replanificar ruta" : "Planificar ruta"}
+            </Button>
+          )}
+          {can("rutas", "write") && !terminal && seg?.ruta && (seg.paradas?.length ?? 0) > 2 && (
+            <Button
+              variant="outline"
+              loading={optimizar.isPending}
+              onClick={() =>
+                optimizar.mutate(seg.ruta!.id, {
+                  onSuccess: () => { toast.success("Ruta optimizada"); refetch(); },
+                  onError: (e) => toast.error(apiError(e)),
+                })
+              }
+            >
+              <RouteIcon className="h-4 w-4" /> Optimizar
             </Button>
           )}
         </div>
@@ -214,6 +243,32 @@ export default function OrdenDetailPage() {
               )}
             </CardBody>
           </Card>
+
+          {entregas.length > 0 && (
+            <Card>
+              <CardHeader title="Evidencia de entrega" subtitle="Prueba capturada por el conductor al entregar" />
+              <CardBody className="space-y-4">
+                {entregas.map((ev) => (
+                  <div key={ev.id} className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 font-medium text-slate-700"><User className="h-4 w-4" /> {ev.receptor || "Receptor no indicado"}</span>
+                      <span className="text-xs text-slate-400">{timeAgo(ev.timestamp)}</span>
+                    </div>
+                    {(ev.lat != null && ev.lon != null) && (
+                      <p className="flex items-center gap-1.5 font-mono text-xs text-slate-400"><MapPin className="h-3.5 w-3.5" /> {formatCoord(ev.lat, ev.lon)}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {ev.archivos.map((a) => (
+                        <button key={a.file_id} onClick={() => abrirArchivo(a.file_id)} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-200">
+                          <Camera className="h-3.5 w-3.5 text-slate-400" /> Ver {a.filename}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </CardBody>
+            </Card>
+          )}
 
           {seg?.ruta && (
             <Card>

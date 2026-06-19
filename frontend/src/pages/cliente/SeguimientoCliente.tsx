@@ -1,7 +1,9 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { Marker, Polyline, Popup } from "react-leaflet";
-import { ArrowLeft, Truck, Star } from "lucide-react";
+import { ArrowLeft, Truck, Star, Camera, CheckCircle2 } from "lucide-react";
+import toast from "react-hot-toast";
 import { useSeguimiento } from "@/api/hooks";
+import { api, apiError } from "@/lib/api";
 import { MapView, type LatLng } from "@/components/map/MapView";
 import { pinIcon, liveIcon, COLORS } from "@/components/map/icons";
 import { StatusBadge } from "@/components/ui/Badge";
@@ -23,6 +25,14 @@ export default function SeguimientoCliente() {
   const pos: LatLng | null = s.posicion_actual ? [s.posicion_actual.lat, s.posicion_actual.lon] : null;
   const linea: LatLng[] = (s.ruta?.geometria?.coordinates ?? []).map((c: number[]) => [c[1], c[0]] as LatLng);
   const puntos: LatLng[] = [origen, destino, pos, ...linea].filter(Boolean) as LatLng[];
+  const entregas = s.entregas ?? [];
+
+  const verFoto = async (fileId: string) => {
+    try {
+      const res = await api.get(`/tracking/orden/${ordenId}/evidencia/${fileId}`, { responseType: "blob" });
+      window.open(URL.createObjectURL(res.data as Blob), "_blank");
+    } catch (e) { toast.error(apiError(e)); }
+  };
 
   return (
     <div className="space-y-4">
@@ -61,6 +71,26 @@ export default function SeguimientoCliente() {
           Última posición {formatDate(s.posicion_actual.timestamp)}
           {s.estadisticas?.duracion_segundos != null && ` · en ruta ${humanDuration(s.estadisticas.duracion_segundos)}`}
         </p>
+      )}
+
+      {entregas.length > 0 && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-soft">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+            <CheckCircle2 className="h-4 w-4" /> Prueba de entrega
+          </p>
+          {entregas.map((ev) => (
+            <div key={ev.id} className="space-y-2 text-sm text-stone-600">
+              <p>Recibió: <span className="font-medium text-stone-800">{ev.receptor || "—"}</span> · {formatDate(ev.timestamp)}</p>
+              <div className="flex flex-wrap gap-2">
+                {ev.archivos.map((a) => (
+                  <button key={a.file_id} onClick={() => verFoto(a.file_id)} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs text-stone-700 ring-1 ring-emerald-200 hover:bg-emerald-100">
+                    <Camera className="h-3.5 w-3.5 text-emerald-600" /> Ver foto
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {s.paradas.length > 0 && (

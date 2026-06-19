@@ -151,6 +151,10 @@ export const useEvidencias = (incidenciaId?: number) =>
     enabled: !!incidenciaId,
   });
 
+// ---------------- Tarifa ----------------
+export const useTarifa = () =>
+  useQuery({ queryKey: ["tarifa"], queryFn: () => get<import("@/types").TarifaConfig>("/tarifa/") });
+
 // ---------------- Reportes ----------------
 export const useReporte = <T = any>(slug: string, params?: Params, enabled = true) =>
   useQuery({ queryKey: ["reporte", slug, params], queryFn: () => get<T>(`/reportes/${slug}`, params), enabled });

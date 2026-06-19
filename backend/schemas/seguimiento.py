@@ -64,3 +64,5 @@ class OrdenSeguimientoResponse(BaseModel):
     paradas: List[ParadaSeguimiento] = []
     geocercas: List[Dict[str, Any]] = []
     estadisticas: Optional[Dict[str, Any]] = None
+    # Evidencia de entrega (foto/firma + receptor) de la asignación activa.
+    entregas: List[Dict[str, Any]] = []

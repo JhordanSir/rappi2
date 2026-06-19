@@ -84,6 +84,64 @@ async def generar_ruta_para_orden(
     return ruta
 
 
+async def aplicar_secuencia(
+    db: AsyncSession,
+    ruta: RutaPlanificada,
+    paradas_ordenadas: list[Parada],
+    mongo_db=None,
+    tolerancia_metros: int = 80,
+) -> RutaPlanificada:
+    """Reasigna la secuencia de las paradas en el orden dado, recalcula la geometría
+    por calles a lo largo de ellas y regenera la geocerca de corredor."""
+    puntos = [
+        (float(p.lon), float(p.lat))
+        for p in paradas_ordenadas
+        if p.lon is not None and p.lat is not None
+    ]
+    if len(puntos) >= 2:
+        data = await osrm_service.get_route_multi(puntos)
+        ruta.geometria = data["geometry"]
+        ruta.distancia_km = round(data["distancia_km"], 2)
+        ruta.tiempo_estimado = timedelta(seconds=data["tiempo_segundos"])
+
+    # La secuencia es única por ruta: primero la liberamos a negativos para evitar
+    # choques con la constraint, luego asignamos 1..N en el nuevo orden.
+    for i, p in enumerate(paradas_ordenadas):
+        p.secuencia = -(i + 1)
+    await db.flush()
+    for i, p in enumerate(paradas_ordenadas):
+        p.secuencia = i + 1
+    await db.commit()
+    await db.refresh(ruta)
+
+    if mongo_db is not None and ruta.geometria:
+        try:
+            await geocerca_service.eliminar_por_ruta(mongo_db, ruta.id)
+            poly = corredor_polygon(ruta.geometria["coordinates"], tolerancia_metros)
+            await geocerca_service.crear_desde_geometry(
+                mongo_db, ruta_id=ruta.id, orden_id=ruta.orden_id,
+                geometry={"type": "Polygon", "coordinates": [poly]},
+                tolerance_m=tolerancia_metros, tipo="ruta_buffer",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("No se pudo regenerar geocerca de corredor para ruta %s: %s", ruta.id, exc)
+    return ruta
+
+
+async def optimizar_ruta(db: AsyncSession, ruta: RutaPlanificada, mongo_db=None) -> RutaPlanificada:
+    """Optimiza el orden de visita de las paradas (OSRM trip), fijando la primera
+    (el recojo) como origen, y aplica la nueva secuencia."""
+    paradas = sorted(ruta.paradas, key=lambda p: p.secuencia)
+    visitables = [p for p in paradas if p.lon is not None and p.lat is not None]
+    if len(visitables) < 3:
+        # Con origen + 1 destino no hay nada que optimizar; solo recalcula geometría.
+        return await aplicar_secuencia(db, ruta, paradas, mongo_db=mongo_db)
+    puntos = [(float(p.lon), float(p.lat)) for p in visitables]
+    resultado = await osrm_service.optimize_trip(puntos, roundtrip=False)
+    nuevo_orden = [visitables[i] for i in resultado["orden"]]
+    return await aplicar_secuencia(db, ruta, nuevo_orden, mongo_db=mongo_db)
+
+
 async def autogenerar_ruta(db: AsyncSession, orden: Orden, mongo_db=None) -> Optional[RutaPlanificada]:
     """Genera la ruta automáticamente al crear una orden (best-effort: nunca
     interrumpe la creación). Requiere que la orden tenga coordenadas."""

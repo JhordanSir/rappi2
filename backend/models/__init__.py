@@ -10,6 +10,7 @@ from models.asignaciones import Asignacion
 from models.rutas import Parada, RutaPlanificada
 from models.incidencias import Incidencia
 from models.calificaciones import Calificacion
+from models.tarifa import TarifaConfig
 
 __all__ = [
     "Base",
@@ -23,4 +24,5 @@ __all__ = [
     "RutaPlanificada", "Parada",
     "Incidencia",
     "Calificacion",
+    "TarifaConfig",
 ]

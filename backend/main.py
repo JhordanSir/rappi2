@@ -20,6 +20,7 @@ from api import (
     roles,
     rutas,
     sesiones,
+    tarifa,
     tracking,
     usuarios,
     vehiculos,
@@ -75,6 +76,7 @@ app.include_router(vehiculos.router, prefix=PREFIX)
 app.include_router(conductores.router, prefix=PREFIX)
 app.include_router(asignaciones.router, prefix=PREFIX)
 app.include_router(rutas.router, prefix=PREFIX)
+app.include_router(tarifa.router, prefix=PREFIX)
 app.include_router(incidencias.router, prefix=PREFIX)
 app.include_router(tracking.router, prefix=PREFIX)
 app.include_router(notificaciones.router, prefix=PREFIX)

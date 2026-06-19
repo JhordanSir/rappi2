@@ -25,6 +25,7 @@ const PagosPage = lazy(() => import("@/pages/PagosPage"));
 const FacturasPage = lazy(() => import("@/pages/FacturasPage"));
 const UsuariosPage = lazy(() => import("@/pages/UsuariosPage"));
 const RolesPage = lazy(() => import("@/pages/RolesPage"));
+const TarifaPage = lazy(() => import("@/pages/TarifaPage"));
 const AuditoriaPage = lazy(() => import("@/pages/AuditoriaPage"));
 const SesionesPage = lazy(() => import("@/pages/SesionesPage"));
 
@@ -59,6 +60,7 @@ function AdminRoutes() {
         <Route path="/reportes" element={<ReportesPage />} />
         <Route path="/pagos" element={<PagosPage />} />
         <Route path="/facturas" element={<FacturasPage />} />
+        <Route path="/tarifa" element={<TarifaPage />} />
         <Route path="/usuarios" element={<UsuariosPage />} />
         <Route path="/roles" element={<RolesPage />} />
       </Route>

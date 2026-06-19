@@ -15,13 +15,14 @@ from schemas.rutas import (
     ParadaUpdate,
     ParadaVisitarRequest,
     PlanificarRutaRequest,
+    ReordenarRutaRequest,
     RutaCreate,
     RutaResponse,
     RutaUpdate,
 )
 from services.geocoding import resolver_coords
 from services.mongo import geocerca_service
-from services.route_planner import generar_ruta_para_orden
+from services.route_planner import aplicar_secuencia, generar_ruta_para_orden, optimizar_ruta
 
 router = APIRouter(prefix="/rutas", tags=["rutas"])
 
@@ -73,6 +74,12 @@ async def planificar_ruta(
     orden = await db.get(Orden, payload.orden_id)
     if orden is None:
         raise HTTPException(status_code=400, detail="orden_id invalido")
+    # No tiene sentido (re)planificar una orden ya entregada o cancelada.
+    if orden.estado in ("Entregado", "Cancelado"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede planificar una orden en estado '{orden.estado}'",
+        )
 
     def _coord(payload_val, orden_val):
         if payload_val is not None:
@@ -105,6 +112,53 @@ async def planificar_ruta(
         select(RutaPlanificada).options(selectinload(RutaPlanificada.paradas)).where(RutaPlanificada.id == ruta.id)
     )
     return result.scalar_one()
+
+
+async def _ruta_con_paradas(db: AsyncSession, ruta_id: int) -> RutaPlanificada:
+    result = await db.execute(
+        select(RutaPlanificada).options(selectinload(RutaPlanificada.paradas)).where(RutaPlanificada.id == ruta_id)
+    )
+    ruta = result.scalar_one_or_none()
+    if ruta is None:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    return ruta
+
+
+@router.post("/{ruta_id}/optimizar", response_model=RutaResponse)
+async def optimizar_ruta_endpoint(
+    ruta_id: int,
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("rutas", "write")),
+):
+    """Optimiza el orden de las paradas (OSRM trip) fijando el recojo como origen."""
+    ruta = await _ruta_con_paradas(db, ruta_id)
+    try:
+        await optimizar_ruta(db, ruta, mongo_db=mongo_db)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"No se pudo optimizar la ruta: {exc}")
+    return await _ruta_con_paradas(db, ruta_id)
+
+
+@router.put("/{ruta_id}/secuencia", response_model=RutaResponse)
+async def reordenar_ruta_endpoint(
+    ruta_id: int,
+    payload: ReordenarRutaRequest,
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("rutas", "write")),
+):
+    """Aplica un orden manual de las paradas y recalcula la geometría por calles."""
+    ruta = await _ruta_con_paradas(db, ruta_id)
+    por_id = {p.id: p for p in ruta.paradas}
+    if set(payload.parada_ids) != set(por_id.keys()):
+        raise HTTPException(status_code=400, detail="parada_ids debe incluir exactamente las paradas de la ruta")
+    ordenadas = [por_id[pid] for pid in payload.parada_ids]
+    try:
+        await aplicar_secuencia(db, ruta, ordenadas, mongo_db=mongo_db)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"No se pudo reordenar la ruta: {exc}")
+    return await _ruta_con_paradas(db, ruta_id)
 
 
 @router.get("/{ruta_id}", response_model=RutaResponse)

@@ -31,6 +31,7 @@ BASE_PERMISOS: dict[str, list[tuple[str, str]]] = {
         + [
             ("reportes", "read"), ("pagos", "read"), ("facturas", "read"),
             ("entregas", "read"), ("calificaciones", "read"), ("notificaciones", "read"),
+            ("tarifa", "read"),
         ]
     ),
     "Conductor": [

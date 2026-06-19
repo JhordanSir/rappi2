@@ -243,6 +243,7 @@ async def finalizar_asignacion(
     asignacion_id: int,
     payload: FinalizarAsignacionRequest | None = None,
     db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
@@ -251,17 +252,25 @@ async def finalizar_asignacion(
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     if asignacion.estado != "EnCurso":
         raise HTTPException(status_code=400, detail=f"Asignacion no esta EnCurso (actual: {asignacion.estado})")
+
+    # Evidencia obligatoria: no se cierra una entrega sin receptor + al menos una foto/firma.
+    receptor = (payload.receptor if payload else None) or asignacion.entrega_receptor
+    if not receptor:
+        raise HTTPException(status_code=400, detail="Indica quién recibió la entrega (receptor)")
+    entregas = await entregas_service.listar_por_asignacion(mongo_db, asignacion_id)
+    if not entregas:
+        raise HTTPException(status_code=400, detail="Sube la prueba de entrega (foto/firma) antes de finalizar")
+
     orden = await db.get(Orden, asignacion.orden_id)
     conductor = await db.get(Conductor, asignacion.conductor_id)
     asignacion.estado = "Finalizada"
     asignacion.fecha_fin = datetime.now(timezone.utc)
+    asignacion.entrega_receptor = receptor
     if payload is not None:
         if payload.lat is not None:
             asignacion.entrega_lat = payload.lat
         if payload.lon is not None:
             asignacion.entrega_lon = payload.lon
-        if payload.receptor is not None:
-            asignacion.entrega_receptor = payload.receptor
     if orden is not None:
         orden.estado = "Entregado"
     if conductor is not None:

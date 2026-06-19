@@ -19,12 +19,31 @@ class Orden(Base):
     lat_destino = Column(Numeric(9, 6), nullable=True)
     lon_destino = Column(Numeric(9, 6), nullable=True)
     fecha_creacion = Column(DateTime(timezone=True), default=func.now(), nullable=False)
-    total = Column(Numeric(10, 2), nullable=True)
+    total = Column(Numeric(10, 2), nullable=True)  # calculado por el servidor (no por el cliente)
+
+    # Datos del paquete (alimentan el cálculo de precio).
+    peso_kg = Column(Numeric(8, 2), nullable=True)
+    largo_cm = Column(Numeric(7, 1), nullable=True)
+    ancho_cm = Column(Numeric(7, 1), nullable=True)
+    alto_cm = Column(Numeric(7, 1), nullable=True)
+
+    # Nivel de servicio (estandar/express/urgente) y programación (null = inmediato).
+    nivel_servicio = Column(String(20), default="estandar", nullable=False)
+    programado_para = Column(DateTime(timezone=True), nullable=True)
+
+    # Ajuste manual de precio aplicado por staff (descuento negativo / recargo positivo).
+    ajuste_monto = Column(Numeric(10, 2), nullable=True)
+    ajuste_motivo = Column(String(200), nullable=True)
+    ajuste_por = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
 
     __table_args__ = (
         CheckConstraint(
             "estado IN ('Pendiente de Pago','Pendiente','En Proceso','En Tránsito','Entregado','Cancelado')",
             name="orden_estado",
+        ),
+        CheckConstraint(
+            "nivel_servicio IN ('estandar','express','urgente')",
+            name="orden_nivel_servicio",
         ),
     )
 

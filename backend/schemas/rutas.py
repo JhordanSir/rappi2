@@ -66,6 +66,11 @@ class RutaResponse(RutaBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReordenarRutaRequest(BaseModel):
+    """Nuevo orden manual de las paradas (lista de parada_id en el orden deseado)."""
+    parada_ids: List[int]
+
+
 class PlanificarRutaRequest(BaseModel):
     orden_id: int
     # Coordenadas opcionales: si se omiten se toman de la orden (lat/lon origen y destino).

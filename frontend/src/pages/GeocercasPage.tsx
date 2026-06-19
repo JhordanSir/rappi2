@@ -14,7 +14,9 @@ import { Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { MapView, type LatLng } from "@/components/map/MapView";
 
-const TIPOS = ["zona_entrega", "ruta_buffer", "prohibida"] as const;
+// El corredor de ruta (ruta_buffer) se genera automáticamente al planificar; aquí solo
+// se dibujan zonas de entrega o zonas prohibidas.
+const TIPOS = ["zona_entrega", "prohibida"] as const;
 const TIPO_COLOR: Record<string, string> = { zona_entrega: "#10b981", ruta_buffer: "#0d9488", prohibida: "#f43f5e" };
 const TIPO_TONE: Record<string, "green" | "brand" | "red"> = { zona_entrega: "green", ruta_buffer: "brand", prohibida: "red" } as any;
 

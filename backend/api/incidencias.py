@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from api.dependencies import get_current_user, get_mongo_db, require_permiso
+from api.dependencies import UserScope, get_current_user, get_mongo_db, get_scope, require_permiso
 from core.database import get_db
 from models.asignaciones import Asignacion
 from models.incidencias import Incidencia
@@ -11,6 +11,7 @@ from models.usuarios import Usuario
 from schemas.common import TipoEvidencia
 from schemas.incidencias import IncidenciaCreate, IncidenciaResponse, IncidenciaUpdate
 from schemas.mongo_evidencias import EvidenciaOut
+from services.incidencias_service import derivar_severidad
 from services.mongo import evidencias_service
 
 router = APIRouter(prefix="/incidencias", tags=["incidencias"])
@@ -39,12 +40,22 @@ async def list_incidencias(
 async def create_incidencia(
     payload: IncidenciaCreate,
     db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("incidencias", "write")),
 ):
     asignacion = await db.get(Asignacion, payload.asignacion_id)
     if asignacion is None:
         raise HTTPException(status_code=400, detail="asignacion_id invalido")
-    incidencia = Incidencia(**payload.model_dump())
+    # La severidad la deriva el servidor por tipo (el chofer no la fija); el admin la
+    # ajusta luego con PATCH. El origen distingue reporte de staff vs. del chofer.
+    incidencia = Incidencia(
+        asignacion_id=payload.asignacion_id,
+        tipo=payload.tipo,
+        notas=payload.notas,
+        evidencia_url=payload.evidencia_url,
+        severidad=derivar_severidad(payload.tipo),
+        origen="admin" if scope.ve_todo() else "chofer",
+    )
     db.add(incidencia)
     await db.commit()
     await db.refresh(incidencia)
