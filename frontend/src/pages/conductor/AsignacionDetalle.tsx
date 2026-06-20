@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marker, Polyline, Popup } from "react-leaflet";
-import { ArrowLeft, Play, Flag, Camera, AlertTriangle, MapPin, Radio, CheckCircle2, XCircle, Package } from "lucide-react";
+import { ArrowLeft, Play, Camera, AlertTriangle, MapPin, Radio, CheckCircle2, XCircle, Package } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useSeguimiento } from "@/api/hooks";

@@ -137,19 +137,3 @@ async def fechas_con_cruce(db: AsyncSession, mongo_db, ordenes: list) -> list[da
         if await ruta_cruza_restriccion(mongo_db, await _geom_de_orden(db, orden)):
             fechas.append(orden.programado_para or datetime.now(timezone.utc))
     return fechas
-
-
-async def evaluar_run(db: AsyncSession, mongo_db, ordenes: list, placa: str | None) -> dict | None:
-    """Evalúa el plaqueo para un conjunto de órdenes (un run) y una placa. Devuelve
-    info de la primera orden restringida (placa bloqueada ese día + ruta que cruza la
-    zona), o None si el run puede circular."""
-    dig = ultimo_digito(placa)
-    if dig is None:
-        return None
-    for orden in ordenes:
-        cuando = orden.programado_para or datetime.now(timezone.utc)
-        if not placa_restringida(placa, cuando):
-            continue
-        if await ruta_cruza_restriccion(mongo_db, await _geom_de_orden(db, orden)):
-            return {"orden_id": orden.id, "placa": placa, "digito": dig, "dia": dia_nombre(cuando)}
-    return None

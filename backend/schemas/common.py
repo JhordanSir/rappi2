@@ -1,7 +1,5 @@
-from typing import Generic, List, Literal, Optional, TypeVar
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
-
-T = TypeVar("T")
 
 
 def lat_field(default: Optional[float] = None):
@@ -22,13 +20,6 @@ EstadoPago = Literal["Pendiente", "Pagado", "Fallido", "Reembolsado"]
 TipoGeocerca = Literal["ruta_buffer", "zona_entrega", "prohibida", "restriccion_vehicular"]
 TipoEvidencia = Literal["foto", "video", "audio", "documento"]
 TipoDestinatario = Literal["usuario", "cliente"]
-
-
-class PaginatedResponse(BaseModel, Generic[T]):
-    items: List[T]
-    total: int
-    skip: int
-    limit: int
 
 
 class MessageResponse(BaseModel):

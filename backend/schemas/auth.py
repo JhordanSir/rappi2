@@ -4,11 +4,6 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
 class RegisterRequest(BaseModel):
     # Registro publico: SIEMPRE crea un usuario con rol "Cliente". No se acepta
     # rol_id del cliente para evitar escalada de privilegios (las cuentas de staff

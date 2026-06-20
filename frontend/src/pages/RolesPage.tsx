@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Shield, Trash2, X } from "lucide-react";
+import { Plus, Shield, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useRoles, useApiMutation } from "@/api/hooks";

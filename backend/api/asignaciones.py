@@ -31,7 +31,6 @@ from schemas.asignaciones import (
     AsignacionResponse,
     AsignacionUpdate,
     EntregaOut,
-    EntregarDestinoRequest,
     FallarDestinoRequest,
     FinalizarAsignacionRequest,
     SugerenciaConductor,

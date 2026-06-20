@@ -1,5 +1,5 @@
 import logging
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from core.config import settings
 
@@ -33,10 +33,6 @@ def get_client() -> AsyncIOMotorClient:
 
 def get_database() -> AsyncIOMotorDatabase:
     return get_client()[settings.MONGO_DB]
-
-
-def get_collection(name: str) -> AsyncIOMotorCollection:
-    return get_database()[name]
 
 
 async def get_mongo_db() -> AsyncIOMotorDatabase:

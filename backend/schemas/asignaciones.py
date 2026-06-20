@@ -20,12 +20,6 @@ class AsignacionCreate(BaseModel):
     vehiculo_placa: str
 
 
-class EntregarDestinoRequest(BaseModel):
-    receptor: str
-    lat: Optional[float] = lat_field()
-    lon: Optional[float] = lon_field()
-
-
 class FallarDestinoRequest(BaseModel):
     """El conductor marca un destino como no entregado, con el motivo."""
     motivo: str

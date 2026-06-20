@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { Field, Input, Select } from "@/components/ui/Field";
+import { Field, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { MapView, type LatLng } from "@/components/map/MapView";
 

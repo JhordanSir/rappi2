@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, Flag, Package, Clock, Zap, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, MapPin, Flag, Clock, Zap, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "@/auth/AuthContext";
 import { api, apiError } from "@/lib/api";
