@@ -26,7 +26,12 @@ export default function AuditoriaPage() {
   const { data: resumen } = useAuditoriaResumen({ horas });
 
   const total = resumen?.total_requests ?? resumen?.total ?? 0;
-  const errores = resumen?.errores_4xx_5xx ?? resumen?.errores ?? 0;
+  // errores_4xx_5xx llega como { "404": n, "500": m, ... }; sumamos los conteos.
+  const erroresRaw = resumen?.errores_4xx_5xx ?? resumen?.errores ?? 0;
+  const errores =
+    typeof erroresRaw === "number"
+      ? erroresRaw
+      : Object.values(erroresRaw as Record<string, number>).reduce((a, b) => a + (b || 0), 0);
   const byMetodo: Record<string, number> = resumen?.by_metodo ?? resumen?.por_metodo ?? {};
 
   return (

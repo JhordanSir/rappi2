@@ -331,18 +331,39 @@ async def aplicar_secuencia(
     return ruta
 
 
+_PARADA_TERMINAL = ("Visitada", "Omitida")
+
+
 async def optimizar_ruta(db: AsyncSession, ruta: RutaPlanificada, mongo_db=None) -> RutaPlanificada:
-    """Optimiza el orden de visita de las paradas (OSRM trip), fijando la primera
-    (el recojo) como origen, y aplica la nueva secuencia."""
+    """Optimiza el orden de visita de las paradas PENDIENTES (OSRM trip).
+
+    Las paradas ya cumplidas (Visitada/Omitida) no se reordenan: quedan fijas al frente
+    en su orden histórico. La optimización del tramo restante se ancla en la última
+    parada cumplida (la posición actual del conductor), de modo que ya no se vuelve a
+    considerar una parada visitada al reoptimizar."""
     paradas = sorted(ruta.paradas, key=lambda p: p.secuencia)
-    visitables = [p for p in paradas if p.lon is not None and p.lat is not None]
-    if len(visitables) < 3:
-        # Con origen + 1 destino no hay nada que optimizar; solo recalcula geometría.
-        return await aplicar_secuencia(db, ruta, paradas, mongo_db=mongo_db)
-    puntos = [(float(p.lon), float(p.lat)) for p in visitables]
+    terminales = [p for p in paradas if p.estado in _PARADA_TERMINAL]
+    pendientes = [
+        p for p in paradas
+        if p.estado not in _PARADA_TERMINAL and p.lon is not None and p.lat is not None
+    ]
+    if len(pendientes) < 2:
+        # Nada que reordenar entre las pendientes; solo recalcula geometría/corredor.
+        return await aplicar_secuencia(db, ruta, terminales + pendientes, mongo_db=mongo_db)
+
+    # Ancla = última parada cumplida con coordenadas (origen del tramo restante). Se fija
+    # como source de la optimización pero no se reincorpora al resultado.
+    ancla = next(
+        (p for p in reversed(terminales) if p.lon is not None and p.lat is not None),
+        None,
+    )
+    base = [ancla] if ancla is not None else []
+    candidatos = base + pendientes
+    puntos = [(float(p.lon), float(p.lat)) for p in candidatos]
     resultado = await osrm_service.optimize_trip(puntos, roundtrip=False)
-    nuevo_orden = [visitables[i] for i in resultado["orden"]]
-    return await aplicar_secuencia(db, ruta, nuevo_orden, mongo_db=mongo_db)
+    ordenados = [candidatos[i] for i in resultado["orden"]]
+    nuevas_pendientes = [p for p in ordenados if p is not ancla]
+    return await aplicar_secuencia(db, ruta, terminales + nuevas_pendientes, mongo_db=mongo_db)
 
 
 async def autogenerar_ruta(db: AsyncSession, orden: Orden, mongo_db=None) -> Optional[RutaPlanificada]:
