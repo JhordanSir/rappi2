@@ -77,9 +77,9 @@ export default function OrdenesPage() {
               header: "Ruta",
               cell: (o) => (
                 <div className="flex items-center gap-2 text-xs text-slate-600">
-                  <span className="max-w-[140px] truncate">{o.direccion_origen}</span>
+                  <span title={o.direccion_origen} className="max-w-[140px] truncate">{o.direccion_origen}</span>
                   <ArrowRight className="h-3 w-3 shrink-0 text-slate-400" />
-                  <span className="max-w-[140px] truncate">{o.direccion_destino}</span>
+                  <span title={o.direccion_destino} className="max-w-[140px] truncate">{o.direccion_destino}</span>
                   {(o.destinos?.length ?? 1) > 1 && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">+{o.destinos!.length - 1}</span>}
                 </div>
               ),

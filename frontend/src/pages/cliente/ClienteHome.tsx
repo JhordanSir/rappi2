@@ -67,8 +67,8 @@ export default function ClienteHome() {
                     <span className="text-sm font-semibold text-stone-800">Pedido #{o.id}</span>
                     <StatusBadge kind="orden" value={o.estado} />
                   </div>
-                  <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-stone-500">
-                    <MapPin className="h-3 w-3" /> {o.direccion_destino}
+                  <p title={o.direccion_destino} className="mt-0.5 flex items-center gap-1 truncate text-xs text-stone-500">
+                    <MapPin className="h-3 w-3 shrink-0" /> {o.direccion_destino}
                   </p>
                   <p className="text-[11px] text-stone-400">{formatDate(o.fecha_creacion)} · {formatMoney(o.total)}</p>
                 </div>

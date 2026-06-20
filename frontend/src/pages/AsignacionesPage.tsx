@@ -171,7 +171,7 @@ function AsignacionForm({ onClose }: { onClose: () => void }) {
               <label key={o.id} className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${ordenIds.includes(o.id) ? "bg-brand-50 text-brand-800" : "hover:bg-slate-50"}`}>
                 <input type="checkbox" checked={ordenIds.includes(o.id)} onChange={() => { toggleOrden(o.id); setSugerencias(null); }} />
                 <span className="font-medium">#{o.id}</span>
-                <span className="truncate text-slate-500">{o.direccion_destino}{(o.destinos?.length ?? 0) > 1 ? ` (+${o.destinos!.length - 1})` : ""}</span>
+                <span title={o.direccion_destino} className="truncate text-slate-500">{o.direccion_destino}{(o.destinos?.length ?? 0) > 1 ? ` (+${o.destinos!.length - 1})` : ""}</span>
               </label>
             ))}
           </div>

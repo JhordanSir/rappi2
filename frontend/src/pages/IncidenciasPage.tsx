@@ -28,6 +28,7 @@ export default function IncidenciasPage() {
   const [sevMin, setSevMin] = useState("");
   const [creating, setCreating] = useState(false);
   const [evid, setEvid] = useState<Incidencia | null>(null);
+  const [detail, setDetail] = useState<Incidencia | null>(null);
   const [toDelete, setToDelete] = useState<Incidencia | null>(null);
   const { data, isLoading } = useIncidencias({ limit: 200, ...(sevMin ? { severidad_min: Number(sevMin) } : {}) });
   const writable = can("incidencias", "write");
@@ -61,6 +62,7 @@ export default function IncidenciasPage() {
           rows={rows}
           loading={isLoading}
           rowKey={(i) => i.id}
+          onRowClick={(i) => setDetail(i)}
           columns={[
             { header: "ID", cell: (i) => <span className="font-mono text-xs text-slate-500">#{i.id}</span> },
             { header: "Tipo", cell: (i) => <span className="inline-flex items-center gap-1.5 font-medium text-slate-800"><TriangleAlert className="h-4 w-4 text-amber-500" /> {i.tipo}</span> },
@@ -71,16 +73,17 @@ export default function IncidenciasPage() {
                 <Select
                   className="h-8 w-auto"
                   value={String(i.severidad)}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => setSev.mutate({ id: i.id, severidad: Number(e.target.value) }, { onError: (err) => toast.error(apiError(err)) })}
                 >
                   {[1, 2, 3, 4, 5].map((s) => <option key={s} value={s}>Nivel {s}</option>)}
                 </Select>
               ) : <Badge tone={sevTone(i.severidad) as any}>Nivel {i.severidad}</Badge>
             ) },
-            { header: "Notas", cell: (i) => <span className="line-clamp-1 max-w-[220px] text-slate-500">{i.notas || "—"}</span> },
-            { header: "Fecha", cell: (i) => <span className="text-slate-500">{formatDate(i.fecha)}</span> },
+            { header: "Notas", cell: (i) => <span title={i.notas || undefined} className="line-clamp-2 max-w-[260px] text-slate-500">{i.notas || "—"}</span> },
+            { header: "Fecha", cell: (i) => <span className="whitespace-nowrap text-slate-500">{formatDate(i.fecha)}</span> },
             { header: "", align: "right", cell: (i) => (
-              <div className="flex justify-end gap-1">
+              <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                 <Button size="sm" variant="outline" onClick={() => setEvid(i)}><Paperclip className="h-3.5 w-3.5" /> Evidencias</Button>
                 {can("incidencias", "delete") && <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(i)}><Trash2 className="h-4 w-4" /></Button>}
               </div>
@@ -89,6 +92,18 @@ export default function IncidenciasPage() {
         />
       </Card>
       {creating && <IncidenciaForm onClose={() => setCreating(false)} />}
+      {detail && (
+        <IncidenciaDetalle
+          incidencia={detail}
+          onClose={() => setDetail(null)}
+          onEvidencias={() => { setEvid(detail); setDetail(null); }}
+          writable={writable}
+          onSeveridad={(severidad) => setSev.mutate({ id: detail.id, severidad }, {
+            onSuccess: () => setDetail((d) => (d ? { ...d, severidad } : d)),
+            onError: (err) => toast.error(apiError(err)),
+          })}
+        />
+      )}
       {evid && <EvidenciasModal incidencia={evid} onClose={() => setEvid(null)} writable={can("incidencias", "write")} />}
       <ConfirmModal
         open={!!toDelete}
@@ -101,6 +116,77 @@ export default function IncidenciasPage() {
         onConfirm={() => toDelete && del.mutate(toDelete.id, { onSuccess: () => { toast.success("Incidencia eliminada"); setToDelete(null); }, onError: (e) => toast.error(apiError(e)) })}
       />
     </div>
+  );
+}
+
+const ORIGEN_LABEL: Record<Incidencia["origen"], string> = {
+  automatica: "Automática (sistema)",
+  admin: "Central (administración)",
+  chofer: "Chofer",
+};
+
+function IncidenciaDetalle({
+  incidencia,
+  onClose,
+  onEvidencias,
+  writable,
+  onSeveridad,
+}: {
+  incidencia: Incidencia;
+  onClose: () => void;
+  onEvidencias: () => void;
+  writable: boolean;
+  onSeveridad: (severidad: number) => void;
+}) {
+  const i = incidencia;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Incidencia #${i.id}`}
+      description={`Reportada el ${formatDate(i.fecha)}`}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cerrar</Button>
+          <Button onClick={onEvidencias}><Paperclip className="h-4 w-4" /> Ver evidencias</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tipo</div>
+            <div className="mt-0.5 inline-flex items-center gap-1.5 font-medium text-slate-800">
+              <TriangleAlert className="h-4 w-4 text-amber-500" /> {i.tipo}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asignación</div>
+            <div className="mt-0.5 font-mono text-slate-700">#{i.asignacion_id}</div>
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Origen</div>
+            <div className="mt-1">
+              <Badge tone={i.origen === "automatica" ? "red" : i.origen === "admin" ? "indigo" : "gray"}>{ORIGEN_LABEL[i.origen]}</Badge>
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Severidad</div>
+            <div className="mt-1">
+              {writable ? (
+                <Select className="h-8 w-auto" value={String(i.severidad)} onChange={(e) => onSeveridad(Number(e.target.value))}>
+                  {[1, 2, 3, 4, 5].map((s) => <option key={s} value={s}>Nivel {s}</option>)}
+                </Select>
+              ) : <Badge tone={sevTone(i.severidad) as any}>Nivel {i.severidad}</Badge>}
+            </div>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Notas</div>
+          <p className="mt-1 whitespace-pre-wrap rounded-xl bg-sillar-50 p-3 text-sm text-slate-700">{i.notas || "Sin notas."}</p>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

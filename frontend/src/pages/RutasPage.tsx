@@ -90,7 +90,7 @@ export default function RutasPage() {
                   {r.paradas.slice(0, 4).map((p) => (
                     <div key={p.id} className="flex items-center gap-2 text-xs">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-500">{p.secuencia}</span>
-                      <span className="flex-1 truncate text-slate-600">{p.direccion}</span>
+                      <span title={p.direccion} className="flex-1 truncate text-slate-600">{p.direccion}</span>
                       <StatusBadge kind="parada" value={p.estado} />
                     </div>
                   ))}
