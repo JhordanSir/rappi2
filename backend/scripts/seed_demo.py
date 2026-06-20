@@ -21,6 +21,7 @@ from core.mongo import connect_to_mongo, close_mongo_connection, ensure_all_inde
 from core.security import hash_password
 from models.asignaciones import Asignacion
 from models.clientes import Cliente, ClienteDireccion
+from models.destinos import Destino
 from models.conductores import Conductor
 from models.incidencias import Incidencia
 from models.ordenes import Factura, Orden, Pago
@@ -103,7 +104,7 @@ async def road_points(o, d):
 
 
 async def limpiar(db):
-    for model in [Incidencia, Parada, RutaPlanificada, Pago, Factura, Asignacion, Orden, ClienteDireccion, Conductor, Vehiculo, Cliente]:
+    for model in [Incidencia, Parada, RutaPlanificada, Pago, Factura, Asignacion, Destino, Orden, ClienteDireccion, Conductor, Vehiculo, Cliente]:
         await db.execute(delete(model))
     await db.execute(delete(Usuario).where(Usuario.email.like(f"%@{DEMO_DOMAIN}")))
     await db.commit()
@@ -210,11 +211,22 @@ async def main():
             db.add(orden)
             await db.flush()
 
+            # Un destino por orden (el modelo multidestino es la fuente autoritativa).
+            destino = Destino(
+                orden_id=orden.id, secuencia=1,
+                direccion=orden.direccion_destino, distrito=dd, lat=cd[0], lon=cd[1],
+                subtotal=orden.total,
+                estado="Entregado" if estado == "Entregado" else "Pendiente",
+            )
+            db.add(destino)
+            await db.flush()
+
             if condi is None:
                 continue
 
             cond = conductores[condi]
             asg = Asignacion(orden_id=orden.id, conductor_id=cond.id, vehiculo_placa=cond.vehiculo_placa)
+            asg.ordenes = [orden]  # enlaza la M2M (run de una sola orden)
             db.add(asg)
             await db.flush()  # asg.id disponible para los pings
             ruta_needed = esc in ("fin", "curso", "curso_alerta")
@@ -254,7 +266,7 @@ async def main():
                 ruta = RutaPlanificada(orden_id=orden.id, distancia_km=round(random.uniform(3, 16), 2), tiempo_estimado=timedelta(minutes=random.randint(15, 55)), geometria=geom)
                 visitado = esc == "fin"
                 ruta.paradas.append(Parada(orden_id=orden.id, direccion=orden.direccion_origen, distrito=do, lat=co[0], lon=co[1], secuencia=1, estado="Visitada", fecha_paso=asg.fecha_inicio))
-                ruta.paradas.append(Parada(orden_id=orden.id, direccion=orden.direccion_destino, distrito=dd, lat=cd[0], lon=cd[1], secuencia=2, estado="Visitada" if visitado else "Pendiente", fecha_paso=asg.fecha_fin if visitado else None))
+                ruta.paradas.append(Parada(orden_id=orden.id, destino_id=destino.id, direccion=orden.direccion_destino, distrito=dd, lat=cd[0], lon=cd[1], secuencia=2, estado="Visitada" if visitado else "Pendiente", fecha_paso=asg.fecha_fin if visitado else None))
                 db.add(ruta)
                 await db.flush()
                 if esc in ("curso", "curso_alerta"):

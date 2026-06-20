@@ -38,6 +38,7 @@ async def crear_con_archivos(
     lon: Optional[float],
     receptor: Optional[str],
     uploaded_by: Optional[int],
+    destino_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     bucket = _bucket(db)
     refs: List[Dict[str, Any]] = []
@@ -70,6 +71,7 @@ async def crear_con_archivos(
 
     doc = {
         "asignacion_id": asignacion_id,
+        "destino_id": destino_id,
         "archivos": refs,
         "tipo": tipo,
         "descripcion": descripcion,

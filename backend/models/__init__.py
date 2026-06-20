@@ -11,6 +11,7 @@ from models.rutas import Parada, RutaPlanificada
 from models.incidencias import Incidencia
 from models.calificaciones import Calificacion
 from models.tarifa import TarifaConfig
+from models.destinos import Destino
 
 __all__ = [
     "Base",
@@ -25,4 +26,5 @@ __all__ = [
     "Incidencia",
     "Calificacion",
     "TarifaConfig",
+    "Destino",
 ]

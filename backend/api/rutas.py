@@ -22,7 +22,7 @@ from schemas.rutas import (
 )
 from services.geocoding import resolver_coords
 from services.mongo import geocerca_service
-from services.route_planner import aplicar_secuencia, generar_ruta_para_orden, optimizar_ruta
+from services.route_planner import aplicar_secuencia, generar_ruta_orden, optimizar_ruta
 
 router = APIRouter(prefix="/rutas", tags=["rutas"])
 
@@ -80,33 +80,20 @@ async def planificar_ruta(
             status_code=409,
             detail=f"No se puede planificar una orden en estado '{orden.estado}'",
         )
+    if orden.lat_origen is None or orden.lon_origen is None:
+        raise HTTPException(status_code=400, detail="La orden no tiene coordenadas de origen")
 
-    def _coord(payload_val, orden_val):
-        if payload_val is not None:
-            return payload_val
-        return float(orden_val) if orden_val is not None else None
-
-    origen_lon = _coord(payload.origen_lon, orden.lon_origen)
-    origen_lat = _coord(payload.origen_lat, orden.lat_origen)
-    destino_lon = _coord(payload.destino_lon, orden.lon_destino)
-    destino_lat = _coord(payload.destino_lat, orden.lat_destino)
-
-    if None in (origen_lon, origen_lat, destino_lon, destino_lat):
-        raise HTTPException(
-            status_code=400,
-            detail="Faltan coordenadas: envialas en el request o registra lat/lon de origen y destino en la orden",
-        )
-
+    # Reconstruye la ruta sobre el origen + todos los destinos de la orden.
     try:
-        ruta = await generar_ruta_para_orden(
-            db, orden,
-            origen_lon, origen_lat, destino_lon, destino_lat,
-            mongo_db=mongo_db,
+        ruta = await generar_ruta_orden(
+            db, orden, mongo_db=mongo_db,
             generar_geocerca=payload.generar_geocerca,
             tolerancia_metros=payload.tolerancia_metros,
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Error generando ruta: {exc}")
+    if ruta is None:
+        raise HTTPException(status_code=400, detail="La orden no tiene destinos con coordenadas")
 
     result = await db.execute(
         select(RutaPlanificada).options(selectinload(RutaPlanificada.paradas)).where(RutaPlanificada.id == ruta.id)

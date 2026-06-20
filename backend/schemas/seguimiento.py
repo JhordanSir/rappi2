@@ -28,6 +28,8 @@ class ParadaSeguimiento(BaseModel):
     lon: Optional[float] = None
     estado: str
     fecha_paso: Optional[datetime] = None
+    orden_id: Optional[int] = None
+    destino_id: Optional[int] = None
 
 
 class AsignacionSeguimiento(BaseModel):

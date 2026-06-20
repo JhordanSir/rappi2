@@ -209,6 +209,8 @@ async def seguimiento_orden(
                 lon=_to_float(p.lon),
                 estado=p.estado,
                 fecha_paso=p.fecha_paso,
+                orden_id=p.orden_id,
+                destino_id=p.destino_id,
             )
             for p in ruta.paradas
         ]

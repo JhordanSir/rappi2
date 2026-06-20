@@ -15,10 +15,15 @@ from api.dependencies import (
 )
 from core.database import get_db
 from core.realtime import CANAL_STAFF, canal_cliente, publish
+from sqlalchemy.orm import selectinload
+
 from models.asignaciones import Asignacion
 from models.calificaciones import Calificacion
 from models.conductores import Conductor
+from models.destinos import Destino
+from models.incidencias import Incidencia
 from models.ordenes import Orden
+from models.rutas import Parada, RutaPlanificada
 from models.usuarios import Usuario
 from models.vehiculos import Vehiculo
 from schemas.asignaciones import (
@@ -26,12 +31,16 @@ from schemas.asignaciones import (
     AsignacionResponse,
     AsignacionUpdate,
     EntregaOut,
+    EntregarDestinoRequest,
+    FallarDestinoRequest,
     FinalizarAsignacionRequest,
     SugerenciaConductor,
 )
 from schemas.common import TipoEvidencia
 from services.mongo import entregas_service, geocerca_service, tracking_service
 from services.mongo.tracking_service import _haversine_m
+from services.pricing_service import obtener_tarifa, peso_cobrable
+from services.route_planner import generar_run
 
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
 
@@ -84,19 +93,36 @@ async def list_asignaciones(
     return result.scalars().all()
 
 
+async def _asg_full(db: AsyncSession, asignacion_id: int) -> Asignacion | None:
+    return (
+        await db.execute(
+            select(Asignacion).options(selectinload(Asignacion.ordenes)).where(Asignacion.id == asignacion_id)
+        )
+    ).scalar_one_or_none()
+
+
 @router.post("/", response_model=AsignacionResponse, status_code=status.HTTP_201_CREATED)
 async def create_asignacion(
     payload: AsignacionCreate,
     db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
     _solo_staff(scope)
-    orden = await db.get(Orden, payload.orden_id)
-    if orden is None:
-        raise HTTPException(status_code=404, detail="Orden no encontrada")
-    if orden.estado != "Pendiente":
-        raise HTTPException(status_code=400, detail=f"Orden no esta Pendiente (estado actual: {orden.estado})")
+    # Una o varias órdenes agrupadas en la misma ruta del conductor (la 1ª es la principal).
+    ids: list[int] = list(dict.fromkeys(payload.orden_ids or ([payload.orden_id] if payload.orden_id else [])))
+    if not ids:
+        raise HTTPException(status_code=400, detail="Indica una o varias órdenes")
+
+    ordenes: list[Orden] = []
+    for oid in ids:
+        orden = await db.get(Orden, oid)
+        if orden is None:
+            raise HTTPException(status_code=404, detail=f"Orden {oid} no encontrada")
+        if orden.estado != "Pendiente":
+            raise HTTPException(status_code=400, detail=f"Orden {oid} no está Pendiente (actual: {orden.estado})")
+        ordenes.append(orden)
 
     conductor = await db.get(Conductor, payload.conductor_id)
     if conductor is None or not conductor.activo:
@@ -110,31 +136,65 @@ async def create_asignacion(
     if vehiculo.estado != "Operativo":
         raise HTTPException(status_code=400, detail=f"Vehiculo no operativo (actual: {vehiculo.estado})")
 
-    asignacion = Asignacion(**payload.model_dump(), estado="Asignada")
+    primary = ordenes[0]
+    asignacion = Asignacion(
+        orden_id=primary.id, conductor_id=payload.conductor_id,
+        vehiculo_placa=payload.vehiculo_placa, estado="Asignada",
+    )
+    asignacion.ordenes = ordenes
     db.add(asignacion)
-    orden.estado = "En Proceso"
+    for orden in ordenes:
+        orden.estado = "En Proceso"
     conductor.disponibilidad = "Ocupado"
     await db.commit()
-    await db.refresh(asignacion)
-    return asignacion
+
+    # Construye una única ruta consolidada (recojos + entregas) optimizada.
+    try:
+        await generar_run(db, primary, ordenes, mongo_db=mongo_db)
+    except Exception as exc:  # noqa: BLE001 - la ruta es best-effort
+        import logging
+        logging.getLogger(__name__).warning("No se pudo generar la ruta del run %s: %s", asignacion.id, exc)
+        await db.rollback()
+    return await _asg_full(db, asignacion.id)
 
 
 @router.get("/sugerencia", response_model=list[SugerenciaConductor])
 async def sugerir_conductor(
-    orden_id: int,
+    orden_id: int | None = None,
+    orden_ids: list[int] | None = Query(None),
     limit: int = Query(5, le=20),
     db: AsyncSession = Depends(get_db),
     mongo_db = Depends(get_mongo_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "read")),
 ):
-    """Sugiere los mejores conductores para una orden: disponibles, con vehículo
-    operativo, ordenados por cercanía al origen (última posición GPS) y rating.
-    El despachador confirma creando la asignación con POST /asignaciones/."""
+    """Sugiere los mejores conductores para una o varias órdenes a agrupar: disponibles,
+    con vehículo operativo y CAPACIDAD suficiente, ordenados por capacidad suficiente,
+    cercanía al origen (última posición GPS) y rating."""
     _solo_staff(scope)
-    orden = await db.get(Orden, orden_id)
-    if orden is None:
-        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    ids = list(dict.fromkeys(orden_ids or ([orden_id] if orden_id else [])))
+    if not ids:
+        raise HTTPException(status_code=400, detail="Indica una o varias órdenes")
+    ordenes = []
+    for oid in ids:
+        o = await db.get(Orden, oid)
+        if o is None:
+            raise HTTPException(status_code=404, detail=f"Orden {oid} no encontrada")
+        ordenes.append(o)
+
+    # Peso requerido = suma del peso cobrable de todos los destinos de todas las órdenes.
+    tarifa = await obtener_tarifa(db)
+    destinos = (
+        await db.execute(select(Destino).where(Destino.orden_id.in_(ids)))
+    ).scalars().all()
+    peso_total = float(sum(
+        peso_cobrable(tarifa, float(d.peso_kg) if d.peso_kg else None,
+                      float(d.largo_cm) if d.largo_cm else None,
+                      float(d.ancho_cm) if d.ancho_cm else None,
+                      float(d.alto_cm) if d.alto_cm else None)
+        for d in destinos
+    ))
+    peso_total = round(peso_total, 2)
 
     rows = (
         await db.execute(
@@ -149,11 +209,12 @@ async def sugerir_conductor(
         )
     ).all()
 
-    lon_o = float(orden.lon_origen) if orden.lon_origen is not None else None
-    lat_o = float(orden.lat_origen) if orden.lat_origen is not None else None
+    primary = ordenes[0]
+    lon_o = float(primary.lon_origen) if primary.lon_origen is not None else None
+    lat_o = float(primary.lat_origen) if primary.lat_origen is not None else None
 
     sugerencias: list[SugerenciaConductor] = []
-    for cond, _veh in rows:
+    for cond, veh in rows:
         dist_km = None
         if lon_o is not None and lat_o is not None:
             pos = await tracking_service.ultima_posicion_conductor(mongo_db, cond.id)
@@ -167,6 +228,8 @@ async def sugerir_conductor(
                 )
             )
         ).one()
+        cap = float(veh.capacidad_kg) if veh.capacidad_kg is not None else None
+        suficiente = cap is None or peso_total == 0 or cap >= peso_total
         sugerencias.append(
             SugerenciaConductor(
                 conductor_id=cond.id,
@@ -175,11 +238,14 @@ async def sugerir_conductor(
                 distancia_km=dist_km,
                 rating=round(float(prom), 2) if prom is not None else None,
                 total_calificaciones=total or 0,
+                capacidad_kg=cap,
+                peso_requerido_kg=peso_total,
+                suficiente=suficiente,
             )
         )
 
-    # Más cercano primero; los sin posición conocida al final; desempate por mejor rating.
-    sugerencias.sort(key=lambda s: (s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
+    # Capacidad suficiente primero; luego más cercano; los sin posición al final; mejor rating.
+    sugerencias.sort(key=lambda s: (not s.suficiente, s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
     return sugerencias[:limit]
 
 
@@ -190,7 +256,7 @@ async def get_asignacion(
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "read")),
 ):
-    asignacion = await db.get(Asignacion, asignacion_id)
+    asignacion = await _asg_full(db, asignacion_id)
     if asignacion is None or not _asg_en_alcance(scope, asignacion):
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     return asignacion
@@ -222,20 +288,46 @@ async def iniciar_asignacion(
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
-    asignacion = await db.get(Asignacion, asignacion_id)
+    asignacion = await _asg_full(db, asignacion_id)
     if asignacion is None or not _asg_en_alcance(scope, asignacion):
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     if asignacion.estado != "Asignada":
         raise HTTPException(status_code=400, detail=f"Asignacion no esta Asignada (actual: {asignacion.estado})")
-    orden = await db.get(Orden, asignacion.orden_id)
     asignacion.estado = "EnCurso"
     asignacion.fecha_inicio = datetime.now(timezone.utc)
-    if orden is not None:
+    # Todas las órdenes del run pasan a 'En Tránsito'.
+    for orden in asignacion.ordenes:
         orden.estado = "En Tránsito"
     await db.commit()
-    await db.refresh(asignacion)
-    await _avisar_estado_orden(db, orden)
-    return asignacion
+    for orden in asignacion.ordenes:
+        await _avisar_estado_orden(db, orden)
+    return await _asg_full(db, asignacion_id)
+
+
+async def _cerrar_completados(db: AsyncSession, asignacion: Asignacion, ahora) -> list[Orden]:
+    """Cierra las órdenes cuyos destinos están todos en estado terminal (Entregado o
+    Fallida): la orden queda 'Entregado' si al menos uno se entregó, o 'Cancelado' si
+    ninguno. Si todo el run terminó, finaliza la asignación y libera al conductor.
+    Devuelve las órdenes cuyo estado cambió (para avisar tras el commit)."""
+    cambiadas: list[Orden] = []
+    todos_terminales = True
+    for orden in asignacion.ordenes:
+        ds = (await db.execute(select(Destino).where(Destino.orden_id == orden.id))).scalars().all()
+        terminales = [d for d in ds if d.estado in ("Entregado", "Fallida")]
+        if len(terminales) < len(ds):
+            todos_terminales = False
+            continue
+        if orden.estado in ("Entregado", "Cancelado"):
+            continue
+        orden.estado = "Entregado" if any(d.estado == "Entregado" for d in ds) else "Cancelado"
+        cambiadas.append(orden)
+    if todos_terminales and asignacion.estado == "EnCurso":
+        asignacion.estado = "Finalizada"
+        asignacion.fecha_fin = ahora
+        conductor = await db.get(Conductor, asignacion.conductor_id)
+        if conductor is not None:
+            conductor.disponibilidad = "Disponible"
+    return cambiadas
 
 
 @router.patch("/{asignacion_id}/finalizar", response_model=AsignacionResponse)
@@ -243,42 +335,130 @@ async def finalizar_asignacion(
     asignacion_id: int,
     payload: FinalizarAsignacionRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    mongo_db = Depends(get_mongo_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
-    asignacion = await db.get(Asignacion, asignacion_id)
+    """Cierre forzado por el staff (excepción): finaliza el run sin foto del conductor,
+    exigiendo un motivo que queda registrado como incidencia para auditoría."""
+    _solo_staff(scope)
+    asignacion = await _asg_full(db, asignacion_id)
+    if asignacion is None:
+        raise HTTPException(status_code=404, detail="Asignacion no encontrada")
+    if asignacion.estado != "EnCurso":
+        raise HTTPException(status_code=400, detail=f"Asignacion no esta EnCurso (actual: {asignacion.estado})")
+    motivo = (payload.nota if payload else None) or ""
+    if not motivo.strip():
+        raise HTTPException(status_code=400, detail="Indica el motivo del cierre forzado")
+
+    ahora = datetime.now(timezone.utc)
+    receptor = (payload.receptor if payload else None) or "Cierre forzado"
+    destinos = (
+        await db.execute(select(Destino).where(Destino.orden_id.in_([o.id for o in asignacion.ordenes])))
+    ).scalars().all()
+    for d in destinos:
+        if d.estado not in ("Entregado", "Fallida"):
+            d.estado = "Entregado"
+            d.entrega_receptor = receptor
+            d.fecha_entrega = ahora
+            d.nota = f"Cierre forzado: {motivo}"
+            if payload and payload.lat is not None:
+                d.entrega_lat = payload.lat
+            if payload and payload.lon is not None:
+                d.entrega_lon = payload.lon
+    asignacion.entrega_receptor = receptor
+    # Registro de auditoría: incidencia del cierre forzado.
+    db.add(Incidencia(asignacion_id=asignacion_id, tipo="Cierre forzado", severidad=2,
+                      origen="admin", notas=motivo))
+    cambiadas = await _cerrar_completados(db, asignacion, ahora)
+    await db.commit()
+    for orden in cambiadas:
+        await _avisar_estado_orden(db, orden)
+    return await _asg_full(db, asignacion_id)
+
+
+async def _validar_destino_en_curso(db, asignacion_id, destino_id, scope):
+    asignacion = await _asg_full(db, asignacion_id)
     if asignacion is None or not _asg_en_alcance(scope, asignacion):
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     if asignacion.estado != "EnCurso":
         raise HTTPException(status_code=400, detail=f"Asignacion no esta EnCurso (actual: {asignacion.estado})")
+    destino = await db.get(Destino, destino_id)
+    if destino is None or destino.orden_id not in {o.id for o in asignacion.ordenes}:
+        raise HTTPException(status_code=404, detail="Destino no pertenece a esta asignación")
+    if destino.estado in ("Entregado", "Fallida"):
+        raise HTTPException(status_code=400, detail=f"El destino ya está {destino.estado}")
+    return asignacion, destino
 
-    # Evidencia obligatoria: no se cierra una entrega sin receptor + al menos una foto/firma.
-    receptor = (payload.receptor if payload else None) or asignacion.entrega_receptor
-    if not receptor:
-        raise HTTPException(status_code=400, detail="Indica quién recibió la entrega (receptor)")
-    entregas = await entregas_service.listar_por_asignacion(mongo_db, asignacion_id)
-    if not entregas:
-        raise HTTPException(status_code=400, detail="Sube la prueba de entrega (foto/firma) antes de finalizar")
 
-    orden = await db.get(Orden, asignacion.orden_id)
-    conductor = await db.get(Conductor, asignacion.conductor_id)
-    asignacion.estado = "Finalizada"
-    asignacion.fecha_fin = datetime.now(timezone.utc)
-    asignacion.entrega_receptor = receptor
-    if payload is not None:
-        if payload.lat is not None:
-            asignacion.entrega_lat = payload.lat
-        if payload.lon is not None:
-            asignacion.entrega_lon = payload.lon
-    if orden is not None:
-        orden.estado = "Entregado"
-    if conductor is not None:
-        conductor.disponibilidad = "Disponible"
+async def _marcar_parada(db, destino_id, ahora, estado="Visitada"):
+    parada = (await db.execute(select(Parada).where(Parada.destino_id == destino_id))).scalars().first()
+    if parada is not None:
+        parada.estado = estado
+        parada.fecha_paso = ahora
+
+
+@router.post("/{asignacion_id}/destinos/{destino_id}/entregar", response_model=EntregaOut, status_code=status.HTTP_201_CREATED)
+async def entregar_destino(
+    asignacion_id: int,
+    destino_id: int,
+    receptor: str = Form(...),
+    lat: float | None = Form(None),
+    lon: float | None = Form(None),
+    archivos: list[UploadFile] = File(..., description="Foto/firma de la entrega de este destino"),
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    current_user: Usuario = Depends(get_current_user),
+    scope: UserScope = Depends(get_scope),
+    _: object = Depends(require_permiso("asignaciones", "write")),
+):
+    """Entrega UN destino del run con evidencia obligatoria. Al quedar todos los destinos
+    de una orden en estado terminal, la orden se cierra; al terminar el run, la asignación
+    queda 'Finalizada'."""
+    asignacion, destino = await _validar_destino_en_curso(db, asignacion_id, destino_id, scope)
+    entrega = await entregas_service.crear_con_archivos(
+        mongo_db, asignacion_id=asignacion_id, archivos=archivos, tipo="foto",
+        descripcion=f"Entrega destino #{destino_id}", lat=lat, lon=lon, receptor=receptor,
+        uploaded_by=current_user.id, destino_id=destino_id,
+    )
+    ahora = datetime.now(timezone.utc)
+    destino.estado = "Entregado"
+    destino.entrega_receptor = receptor
+    destino.entrega_lat, destino.entrega_lon = lat, lon
+    destino.fecha_entrega = ahora
+    await _marcar_parada(db, destino_id, ahora, "Visitada")
+    cambiadas = await _cerrar_completados(db, asignacion, ahora)
     await db.commit()
-    await db.refresh(asignacion)
-    await _avisar_estado_orden(db, orden)
-    return asignacion
+    for orden in cambiadas:
+        await _avisar_estado_orden(db, orden)
+    return entrega
+
+
+@router.post("/{asignacion_id}/destinos/{destino_id}/fallar", response_model=AsignacionResponse)
+async def fallar_destino(
+    asignacion_id: int,
+    destino_id: int,
+    payload: FallarDestinoRequest,
+    db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
+    _: object = Depends(require_permiso("asignaciones", "write")),
+):
+    """Marca un destino como NO entregado (cliente ausente, dirección incorrecta…) con
+    motivo. Crea una incidencia y cierra la orden/run cuando ya no quedan destinos pendientes."""
+    if not payload.motivo.strip():
+        raise HTTPException(status_code=400, detail="Indica el motivo de la no entrega")
+    asignacion, destino = await _validar_destino_en_curso(db, asignacion_id, destino_id, scope)
+    ahora = datetime.now(timezone.utc)
+    destino.estado = "Fallida"
+    destino.nota = payload.motivo.strip()
+    destino.fecha_entrega = ahora
+    await _marcar_parada(db, destino_id, ahora, "Omitida")
+    db.add(Incidencia(asignacion_id=asignacion_id, tipo="Entrega fallida", severidad=3,
+                      origen="chofer", notas=payload.motivo.strip()))
+    cambiadas = await _cerrar_completados(db, asignacion, ahora)
+    await db.commit()
+    for orden in cambiadas:
+        await _avisar_estado_orden(db, orden)
+    return await _asg_full(db, asignacion_id)
 
 
 @router.post(

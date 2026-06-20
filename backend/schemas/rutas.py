@@ -9,6 +9,7 @@ from schemas.common import EstadoParada, lat_field, lon_field
 
 class ParadaBase(BaseModel):
     orden_id: Optional[int] = None
+    destino_id: Optional[int] = None
     direccion: str
     distrito: Optional[str] = None
     lat: Optional[float] = lat_field()

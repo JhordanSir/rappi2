@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marker, Polygon, Polyline, Popup } from "react-leaflet";
 import {
-  ArrowLeft, Route as RouteIcon, Gauge, Clock, Flag, Truck, User, Navigation, RefreshCw, TriangleAlert, Camera, MapPin,
+  ArrowLeft, Route as RouteIcon, Gauge, Clock, Flag, Truck, User, Navigation, RefreshCw, TriangleAlert, Camera, MapPin, Plus, Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
@@ -13,7 +13,9 @@ import { PageLoader } from "@/components/ui/Feedback";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
-import { MapView, type LatLng } from "@/components/map/MapView";
+import { Modal } from "@/components/ui/Modal";
+import { Field, Input } from "@/components/ui/Field";
+import { MapView, LocationPicker, type LatLng } from "@/components/map/MapView";
 import { pinIcon, liveIcon, COLORS } from "@/components/map/icons";
 import { formatCoord, formatDate, formatMoney, humanDuration, timeAgo, pointInPolygon } from "@/lib/utils";
 import { fetchRoadRoute } from "@/lib/routing";
@@ -53,8 +55,14 @@ export default function OrdenDetailPage() {
     (rutaId: number) => api.post(`/rutas/${rutaId}/optimizar`),
     [],
   );
+  const qc = useQueryClient();
+  const delDestino = useApiMutation((destinoId: number) => api.delete(`/ordenes/${ordenId}/destinos/${destinoId}`), []);
+  const [addDest, setAddDest] = useState(false);
+  const refreshOrden = () => { qc.invalidateQueries({ queryKey: ["orden", ordenId] }); refetch(); };
 
   if (isLoading || !orden) return <PageLoader />;
+
+  const editable = (orden.estado === "Pendiente de Pago" || orden.estado === "Pendiente") && can("ordenes", "write");
 
   // Una orden entregada o cancelada ya no se (re)planifica.
   const terminal = orden.estado === "Entregado" || orden.estado === "Cancelado";
@@ -185,8 +193,8 @@ export default function OrdenDetailPage() {
               )}
               {paradas.map((p) =>
                 p.lat != null ? (
-                  <Marker key={p.id} position={[p.lat, p.lon!]} icon={pinIcon(COLORS.parada, String(p.secuencia))}>
-                    <Popup>{p.direccion} · {p.estado}</Popup>
+                  <Marker key={p.id} position={[p.lat, p.lon!]} icon={pinIcon(p.estado === "Visitada" ? COLORS.origen : p.estado === "Omitida" ? "#64748b" : COLORS.parada, String(p.secuencia))}>
+                    <Popup>{p.direccion} · {p.estado === "Visitada" ? "Entregado" : p.estado === "Omitida" ? "No entregado" : "Pendiente"}</Popup>
                   </Marker>
                 ) : null,
               )}
@@ -220,13 +228,48 @@ export default function OrdenDetailPage() {
         {/* Panel lateral */}
         <div className="space-y-6">
           <Card>
-            <CardHeader title="Trayecto" />
-            <CardBody className="space-y-4">
+            <CardHeader
+              title="Trayecto"
+              subtitle={`Recojo · ${(orden.destinos?.length ?? 1)} destino(s)`}
+              action={editable && <Button size="sm" variant="outline" onClick={() => setAddDest(true)}><Plus className="h-3.5 w-3.5" /> Destino</Button>}
+            />
+            <CardBody className="space-y-3">
               <PointRow color="bg-emerald-500" label="Origen" dir={origen?.direccion ?? orden.direccion_origen} sub={origen?.distrito} coord={formatCoord(origen?.lat ?? orden.lat_origen, origen?.lon ?? orden.lon_origen)} />
-              <div className="ml-[7px] h-5 border-l-2 border-dashed border-slate-200" />
-              <PointRow color="bg-rose-500" label="Destino" dir={destino?.direccion ?? orden.direccion_destino} sub={destino?.distrito} coord={formatCoord(destino?.lat ?? orden.lat_destino, destino?.lon ?? orden.lon_destino)} />
+              {(orden.destinos ?? []).map((d) => (
+                <div key={d.id} className="flex gap-3">
+                  <div className="mt-1 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-rose-500 text-[8px] font-bold text-white ring-4 ring-slate-100">{d.secuencia}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-medium text-slate-800">{d.direccion}</p>
+                      <div className="flex items-center gap-1.5">
+                        <StatusBadge kind="parada" value={d.estado === "Entregado" ? "Visitada" : d.estado === "Fallida" ? "Omitida" : "Pendiente"} />
+                        {editable && (orden.destinos?.length ?? 1) > 1 && (
+                          <button onClick={() => delDestino.mutate(d.id, { onSuccess: () => { toast.success("Destino eliminado"); refreshOrden(); }, onError: (e) => toast.error(apiError(e)) })} className="text-slate-300 hover:text-rose-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                        )}
+                      </div>
+                    </div>
+                    {d.nombre_destinatario && <p className="text-xs text-slate-500">Para: {d.nombre_destinatario}</p>}
+                    <p className="text-xs text-slate-400">
+                      {d.subtotal != null && `${formatMoney(d.subtotal)} · `}
+                      {d.estado === "Entregado" && d.entrega_receptor ? `Recibió ${d.entrega_receptor}` : d.estado === "Fallida" ? (d.nota || "No entregado") : "Pendiente"}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </CardBody>
           </Card>
+
+          {orden.ajuste_monto != null && (
+            <Card>
+              <CardHeader title="Precio" />
+              <CardBody className="space-y-1 text-sm">
+                <div className="flex justify-between text-slate-500"><span>Base</span><span>{formatMoney(Number(orden.total ?? 0) - Number(orden.ajuste_monto))}</span></div>
+                <div className="flex justify-between text-slate-500"><span>Ajuste{orden.ajuste_por ? ` · usuario #${orden.ajuste_por}` : ""}</span><span className={Number(orden.ajuste_monto) < 0 ? "text-emerald-600" : "text-rose-600"}>{Number(orden.ajuste_monto) >= 0 ? "+" : ""}{formatMoney(orden.ajuste_monto)}</span></div>
+                <div className="flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-800"><span>Total</span><span>{formatMoney(orden.total)}</span></div>
+                {orden.ajuste_motivo && <p className="pt-1 text-xs text-slate-400">Motivo: {orden.ajuste_motivo}</p>}
+              </CardBody>
+            </Card>
+          )}
 
           <Card>
             <CardHeader title="Asignación" />
@@ -290,7 +333,38 @@ export default function OrdenDetailPage() {
           )}
         </div>
       </div>
+
+      {addDest && <AddDestinoModal ordenId={ordenId} onClose={() => setAddDest(false)} onDone={refreshOrden} />}
     </div>
+  );
+}
+
+function AddDestinoModal({ ordenId, onClose, onDone }: { ordenId: number; onClose: () => void; onDone: () => void }) {
+  const [direccion, setDireccion] = useState("");
+  const [nombre, setNombre] = useState("");
+  const [punto, setPunto] = useState<LatLng | null>(null);
+  const [peso, setPeso] = useState("");
+  const m = useApiMutation((body: any) => api.post(`/ordenes/${ordenId}/destinos`, body), []);
+  const submit = () => {
+    if (!direccion) return toast.error("Indica la dirección del destino");
+    if (!punto) return toast.error("Fija el punto en el mapa");
+    m.mutate(
+      { direccion, nombre_destinatario: nombre || null, lat: punto[0], lon: punto[1], peso_kg: peso ? Number(peso) : null },
+      { onSuccess: () => { toast.success("Destino agregado"); onDone(); onClose(); }, onError: (e) => toast.error(apiError(e)) },
+    );
+  };
+  return (
+    <Modal open onClose={onClose} title="Agregar destino" description="Recalcula el precio y la ruta de la orden."
+      footer={<><Button variant="outline" onClick={onClose}>Cancelar</Button><Button loading={m.isPending} onClick={submit}>Agregar</Button></>}>
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Dirección" required><Input value={direccion} onChange={(e) => setDireccion(e.target.value)} /></Field>
+          <Field label="Destinatario"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
+        </div>
+        <Field label="Peso (kg)"><Input type="number" value={peso} onChange={(e) => setPeso(e.target.value)} className="w-32" /></Field>
+        <LocationPicker value={punto} onChange={setPunto} height={220} color="#f43f5e" />
+      </div>
+    </Modal>
   );
 }
 

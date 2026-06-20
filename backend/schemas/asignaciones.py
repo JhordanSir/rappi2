@@ -12,8 +12,23 @@ class AsignacionBase(BaseModel):
     vehiculo_placa: str
 
 
-class AsignacionCreate(AsignacionBase):
-    pass
+class AsignacionCreate(BaseModel):
+    # Una orden (legacy) o varias agrupadas en la misma ruta del conductor.
+    orden_id: Optional[int] = None
+    orden_ids: Optional[List[int]] = None
+    conductor_id: int
+    vehiculo_placa: str
+
+
+class EntregarDestinoRequest(BaseModel):
+    receptor: str
+    lat: Optional[float] = lat_field()
+    lon: Optional[float] = lon_field()
+
+
+class FallarDestinoRequest(BaseModel):
+    """El conductor marca un destino como no entregado, con el motivo."""
+    motivo: str
 
 
 class AsignacionUpdate(BaseModel):
@@ -38,6 +53,7 @@ class AsignacionResponse(AsignacionBase):
     entrega_lat: Optional[float] = None
     entrega_lon: Optional[float] = None
     entrega_receptor: Optional[str] = None
+    orden_ids: List[int] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,6 +66,9 @@ class SugerenciaConductor(BaseModel):
     distancia_km: Optional[float] = None
     rating: Optional[float] = None
     total_calificaciones: int = 0
+    capacidad_kg: Optional[float] = None
+    peso_requerido_kg: float = 0
+    suficiente: bool = True
 
 
 class ArchivoEntregaRef(BaseModel):

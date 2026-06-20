@@ -90,17 +90,42 @@ export interface Orden {
   programado_para?: string | null;
   ajuste_monto?: number | null;
   ajuste_motivo?: string | null;
+  ajuste_por?: number | null;
+  destinos?: Destino[];
 }
 
-export interface Cotizacion {
+export interface TramoCotizado {
   distancia_km: number;
   tiempo_min: number;
   peso_cobrable_kg: number;
-  subtotal: number;
-  multiplicador_servicio: number;
-  recargo_horario_pct: number;
+  total: number;
+}
+
+export interface Cotizacion {
+  tramos: TramoCotizado[];
+  distancia_km: number;
+  tiempo_min: number;
   total: number;
   moneda: string;
+}
+
+export interface Destino {
+  id: number;
+  secuencia: number;
+  direccion: string;
+  distrito?: string | null;
+  lat?: number | null;
+  lon?: number | null;
+  peso_kg?: number | null;
+  largo_cm?: number | null;
+  ancho_cm?: number | null;
+  alto_cm?: number | null;
+  nombre_destinatario?: string | null;
+  subtotal?: number | null;
+  estado: "Pendiente" | "Entregado" | "Fallida";
+  nota?: string | null;
+  entrega_receptor?: string | null;
+  fecha_entrega?: string | null;
 }
 
 export interface TarifaConfig {
@@ -157,6 +182,7 @@ export interface Asignacion {
   entrega_lat?: number | null;
   entrega_lon?: number | null;
   entrega_receptor?: string | null;
+  orden_ids?: number[];
 }
 
 // ---- Rutas / Paradas ----
@@ -248,6 +274,8 @@ export interface ParadaSeguimiento {
   lon?: number | null;
   estado: string;
   fecha_paso?: string | null;
+  orden_id?: number | null;
+  destino_id?: number | null;
 }
 
 export interface AsignacionSeguimiento {

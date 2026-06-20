@@ -51,6 +51,7 @@ class Orden(Base):
     pagos = relationship("Pago", back_populates="orden", cascade="all, delete-orphan")
     facturas = relationship("Factura", back_populates="orden", cascade="all, delete-orphan")
     asignaciones = relationship("Asignacion", back_populates="orden", cascade="all, delete-orphan")
+    destinos = relationship("Destino", back_populates="orden", cascade="all, delete-orphan", order_by="Destino.secuencia")
     rutas = relationship("RutaPlanificada", back_populates="orden", cascade="all, delete-orphan")
     calificacion = relationship("Calificacion", back_populates="orden", uselist=False, cascade="all, delete-orphan")
 

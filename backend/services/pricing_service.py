@@ -152,3 +152,41 @@ async def cotizar_tramo(
         nivel_servicio=nivel_servicio,
         cuando=cuando,
     )
+
+
+async def cotizar_orden(
+    db: AsyncSession,
+    origen_lon: float,
+    origen_lat: float,
+    destinos: list[dict],
+    nivel_servicio: str = "estandar",
+    cuando: Optional[datetime] = None,
+) -> dict:
+    """Cotiza una orden con uno o varios destinos: un tramo recojo→destino por cada
+    uno y el total como suma de tramos. `destinos` = lista de dicts con lon/lat y paquete."""
+    tarifa = await obtener_tarifa(db)
+    tramos: list[dict] = []
+    total = Decimal("0")
+    dist_total = 0.0
+    tiempo_total = 0.0
+    for d in destinos:
+        ruta = await osrm_service.get_route(origen_lon, origen_lat, float(d["lon"]), float(d["lat"]))
+        tramo = precio_tramo(
+            tarifa,
+            distancia_km=ruta["distancia_km"],
+            tiempo_min=ruta["tiempo_segundos"] / 60.0,
+            peso_kg=d.get("peso_kg"), largo_cm=d.get("largo_cm"),
+            ancho_cm=d.get("ancho_cm"), alto_cm=d.get("alto_cm"),
+            nivel_servicio=nivel_servicio, cuando=cuando,
+        )
+        tramos.append(tramo)
+        total += Decimal(str(tramo["total"]))
+        dist_total += tramo["distancia_km"]
+        tiempo_total += tramo["tiempo_min"]
+    return {
+        "tramos": tramos,
+        "distancia_km": round(dist_total, 2),
+        "tiempo_min": round(tiempo_total, 1),
+        "total": float(_q2(total)),
+        "moneda": tarifa.moneda,
+    }

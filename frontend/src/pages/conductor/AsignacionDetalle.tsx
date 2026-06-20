@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marker, Polyline, Popup } from "react-leaflet";
-import { ArrowLeft, Play, Flag, Camera, AlertTriangle, MapPin, Radio, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Play, Flag, Camera, AlertTriangle, MapPin, Radio, CheckCircle2, XCircle, Package } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useSeguimiento } from "@/api/hooks";
@@ -35,12 +35,15 @@ export default function AsignacionDetalle() {
 
   const enCurso = asg?.estado === "EnCurso";
   const [gpsOn, setGpsOn] = useState(false);
-  const [receptor, setReceptor] = useState("");
-  const [showFin, setShowFin] = useState(false);
   const [showInc, setShowInc] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [pruebaSubida, setPruebaSubida] = useState(false);
   const [inc, setInc] = useState({ tipo: TIPOS_INCIDENCIA[0], notas: "" });
+  // Entrega por destino: id del destino en curso + receptor.
+  const [entregando, setEntregando] = useState<number | null>(null);
+  const [receptor, setReceptor] = useState("");
+  // No entrega: id del destino + motivo.
+  const [fallando, setFallando] = useState<number | null>(null);
+  const [motivoFallo, setMotivoFallo] = useState("");
 
   const { last, error: gpsError } = useGpsTracking({
     asignacionId,
@@ -65,29 +68,24 @@ export default function AsignacionDetalle() {
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };
 
-  const subirPrueba = async (file: File) => {
-    setBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append("tipo", "foto");
-      if (last) { fd.append("lat", String(last.lat)); fd.append("lon", String(last.lon)); }
-      fd.append("archivos", file);
-      await api.post(`/asignaciones/${asignacionId}/prueba-entrega`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      setPruebaSubida(true);
-      toast.success("Prueba de entrega subida");
-    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
-  };
-
-  const finalizar = () => {
-    if (!receptor.trim()) return toast.error("Indica quién recibió la entrega");
-    if (!pruebaSubida) return toast.error("Sube la prueba de entrega (foto) antes de finalizar");
+  // Entrega de un destino: sube la foto (obligatoria) + receptor y marca el destino.
+  const entregarDestino = async (destinoId: number, file: File) => {
+    if (!receptor.trim()) return toast.error("Indica quién recibió");
     setBusy(true);
     const done = async (lat: number | null, lon: number | null) => {
       try {
-        await api.patch(`/asignaciones/${asignacionId}/finalizar`, { receptor: receptor || null, lat, lon });
-        toast.success("¡Entrega completada!");
+        const fd = new FormData();
+        fd.append("receptor", receptor.trim());
+        if (lat != null) fd.append("lat", String(lat));
+        if (lon != null) fd.append("lon", String(lon));
+        fd.append("archivos", file);
+        await api.post(`/asignaciones/${asignacionId}/destinos/${destinoId}/entregar`, fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        toast.success("Destino entregado");
+        setEntregando(null);
+        setReceptor("");
         refresh();
-        navigate("/");
       } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
     };
     if ("geolocation" in navigator) {
@@ -97,6 +95,18 @@ export default function AsignacionDetalle() {
         { enableHighAccuracy: true, timeout: 8000 },
       );
     } else done(last?.lat ?? null, last?.lon ?? null);
+  };
+
+  const fallarDestino = async (destinoId: number) => {
+    if (!motivoFallo.trim()) return toast.error("Indica el motivo de la no entrega");
+    setBusy(true);
+    try {
+      await api.post(`/asignaciones/${asignacionId}/destinos/${destinoId}/fallar`, { motivo: motivoFallo.trim() });
+      toast.success("Destino marcado como no entregado");
+      setFallando(null);
+      setMotivoFallo("");
+      refresh();
+    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };
 
   const reportarIncidencia = async () => {
@@ -112,9 +122,10 @@ export default function AsignacionDetalle() {
   if (isLoading || !asg) return <PageLoader />;
 
   const origen: LatLng | null = seg?.origen.lat != null && seg?.origen.lon != null ? [seg.origen.lat, seg.origen.lon] : null;
-  const destino: LatLng | null = seg?.destino.lat != null && seg?.destino.lon != null ? [seg.destino.lat, seg.destino.lon] : null;
   const linea: LatLng[] = (seg?.ruta?.geometria?.coordinates ?? []).map((c: number[]) => [c[1], c[0]] as LatLng);
-  const puntos: LatLng[] = [origen, destino, ...linea].filter(Boolean) as LatLng[];
+  const paradasEntrega = (seg?.paradas ?? []).filter((p) => p.destino_id != null).sort((a, b) => a.secuencia - b.secuencia);
+  const puntos: LatLng[] = [origen, ...paradasEntrega.filter((p) => p.lat != null).map((p) => [p.lat!, p.lon!] as LatLng), ...linea].filter(Boolean) as LatLng[];
+  const pendientes = paradasEntrega.filter((p) => p.estado === "Pendiente").length;
 
   return (
     <div className="space-y-4 pb-8">
@@ -123,12 +134,13 @@ export default function AsignacionDetalle() {
       </button>
 
       <div className="rounded-2xl border border-stone-700 bg-stone-800 p-4">
-        <h1 className="text-lg font-semibold text-stone-100">Pedido #{asg.orden_id}</h1>
+        <h1 className="text-lg font-semibold text-stone-100">Run #{asg.id}</h1>
+        <p className="mt-1 text-sm text-stone-400">
+          {paradasEntrega.length} entrega(s) · {pendientes} pendiente(s)
+          {(asg.orden_ids?.length ?? 1) > 1 && ` · ${asg.orden_ids!.length} órdenes`}
+        </p>
         {seg && (
-          <div className="mt-2 space-y-1 text-sm text-stone-300">
-            <p className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-emerald-400" /> {seg.origen.direccion}</p>
-            <p className="flex items-center gap-1.5"><Flag className="h-4 w-4 text-rose-400" /> {seg.destino.direccion}</p>
-          </div>
+          <p className="mt-2 flex items-center gap-1.5 text-sm text-stone-300"><MapPin className="h-4 w-4 text-emerald-400" /> Recojo: {seg.origen.direccion}</p>
         )}
       </div>
 
@@ -136,11 +148,14 @@ export default function AsignacionDetalle() {
         <MapView points={puntos} height={300}>
           {linea.length > 1 && <Polyline positions={linea} pathOptions={{ color: COLORS.brand, weight: 4, opacity: 0.8 }} />}
           {origen && <Marker position={origen} icon={pinIcon(COLORS.origen)}><Popup>Recojo</Popup></Marker>}
-          {destino && <Marker position={destino} icon={pinIcon(COLORS.destino)}><Popup>Entrega</Popup></Marker>}
+          {paradasEntrega.map((p) => p.lat != null && (
+            <Marker key={p.id} position={[p.lat!, p.lon!]} icon={pinIcon(p.estado === "Visitada" ? COLORS.origen : p.estado === "Omitida" ? "#64748b" : COLORS.destino, String(p.secuencia))}>
+              <Popup>{p.direccion} · {p.estado === "Visitada" ? "Entregado" : p.estado === "Omitida" ? "No entregado" : "Pendiente"}</Popup>
+            </Marker>
+          ))}
         </MapView>
       )}
 
-      {/* Acciones según estado */}
       {asg.estado === "Asignada" && (
         <Button className="w-full" size="lg" loading={busy} onClick={iniciar}>
           <Play className="h-5 w-5" /> Iniciar entrega
@@ -162,23 +177,61 @@ export default function AsignacionDetalle() {
           </button>
           {gpsError && <p className="text-xs text-rose-400">{gpsError}</p>}
 
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant={pruebaSubida ? "success" : "outline"} loading={busy} onClick={() => fileRef.current?.click()}>
-              <Camera className="h-4 w-4" /> {pruebaSubida ? "Prueba subida ✓" : "Prueba de entrega"}
-            </Button>
-            <Button variant="outline" onClick={() => setShowInc((v) => !v)}>
-              <AlertTriangle className="h-4 w-4" /> Incidencia
-            </Button>
+          {/* Lista de entregas (destinos) */}
+          <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-stone-200"><Package className="h-4 w-4" /> Entregas</p>
+            {paradasEntrega.map((p) => (
+              <div key={p.id} className={`rounded-2xl border p-3 ${p.estado === "Visitada" ? "border-emerald-700/40 bg-emerald-900/20" : p.estado === "Omitida" ? "border-stone-600 bg-stone-800/60 opacity-70" : "border-stone-700 bg-stone-800"}`}>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-sm text-stone-100">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-stone-700 text-xs font-bold">{p.secuencia}</span>
+                    {p.direccion}
+                  </span>
+                  {p.estado === "Visitada"
+                    ? <span className="flex items-center gap-1 text-xs text-emerald-400"><CheckCircle2 className="h-5 w-5" /> Entregado</span>
+                    : p.estado === "Omitida"
+                    ? <span className="flex items-center gap-1 text-xs text-stone-400"><XCircle className="h-5 w-5" /> No entregado</span>
+                    : (
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="outline" onClick={() => { setEntregando(p.destino_id!); setFallando(null); setReceptor(""); }}>Entregar</Button>
+                        <Button size="sm" variant="ghost" className="text-rose-400" onClick={() => { setFallando(p.destino_id!); setEntregando(null); setMotivoFallo(""); }}>No entregar</Button>
+                      </div>
+                    )}
+                </div>
+                {entregando === p.destino_id && p.estado === "Pendiente" && (
+                  <div className="mt-3 space-y-2">
+                    <Field label={<span className="text-stone-200">¿Quién recibió?</span>} required>
+                      <Input value={receptor} onChange={(e) => setReceptor(e.target.value)} placeholder="Nombre del receptor" />
+                    </Field>
+                    <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden
+                      onChange={(e) => e.target.files?.[0] && entregarDestino(p.destino_id!, e.target.files[0])} />
+                    <div className="flex gap-2">
+                      <Button variant="outline" className="flex-1" onClick={() => setEntregando(null)}>Cancelar</Button>
+                      <Button variant="success" className="flex-1" loading={busy} onClick={() => fileRef.current?.click()}>
+                        <Camera className="h-4 w-4" /> Foto y entregar
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {fallando === p.destino_id && p.estado === "Pendiente" && (
+                  <div className="mt-3 space-y-2">
+                    <Field label={<span className="text-stone-200">Motivo de la no entrega</span>} required>
+                      <Input value={motivoFallo} onChange={(e) => setMotivoFallo(e.target.value)} placeholder="Cliente ausente, dirección incorrecta…" />
+                    </Field>
+                    <div className="flex gap-2">
+                      <Button variant="outline" className="flex-1" onClick={() => setFallando(null)}>Cancelar</Button>
+                      <Button variant="danger" className="flex-1" loading={busy} onClick={() => fallarDestino(p.destino_id!)}>Confirmar no entrega</Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {paradasEntrega.length === 0 && <p className="text-sm text-stone-400">Sin destinos en la ruta.</p>}
           </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            onChange={(e) => e.target.files?.[0] && subirPrueba(e.target.files[0])}
-          />
 
+          <Button variant="outline" className="w-full" onClick={() => setShowInc((v) => !v)}>
+            <AlertTriangle className="h-4 w-4" /> Reportar incidencia
+          </Button>
           {showInc && (
             <div className="space-y-3 rounded-2xl border border-stone-700 bg-stone-800 p-4">
               <Field label={<span className="text-stone-200">Tipo</span>}>
@@ -193,33 +246,13 @@ export default function AsignacionDetalle() {
               <Button className="w-full" variant="danger" loading={busy} onClick={reportarIncidencia}>Reportar</Button>
             </div>
           )}
-
-          {!showFin ? (
-            <Button className="w-full" size="lg" variant="success" onClick={() => setShowFin(true)}>
-              <CheckCircle2 className="h-5 w-5" /> Finalizar entrega
-            </Button>
-          ) : (
-            <div className="space-y-3 rounded-2xl border border-emerald-700/40 bg-emerald-900/20 p-4">
-              <Field label={<span className="text-stone-200">¿Quién recibió?</span>} required>
-                <Input value={receptor} onChange={(e) => setReceptor(e.target.value)} placeholder="Nombre del receptor" />
-              </Field>
-              {!pruebaSubida && (
-                <p className="text-xs text-amber-400">Falta subir la foto de prueba de entrega.</p>
-              )}
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => setShowFin(false)}>Cancelar</Button>
-                <Button variant="success" className="flex-1" loading={busy} onClick={finalizar}>Confirmar entrega</Button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
       {asg.estado === "Finalizada" && (
         <div className="rounded-2xl border border-emerald-700/40 bg-emerald-900/20 p-5 text-center">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
-          <p className="mt-2 font-semibold text-stone-100">Entrega completada</p>
-          {asg.entrega_receptor && <p className="text-sm text-stone-400">Recibió: {asg.entrega_receptor}</p>}
+          <p className="mt-2 font-semibold text-stone-100">Run completado</p>
         </div>
       )}
     </div>

@@ -25,6 +25,8 @@ class Parada(Base):
     id = Column(Integer, primary_key=True, index=True)
     ruta_id = Column(Integer, ForeignKey("rutas_planificadas.id", ondelete="CASCADE"), nullable=False, index=True)
     orden_id = Column(Integer, ForeignKey("ordenes.id", ondelete="SET NULL"), nullable=True)
+    # Una parada de entrega apunta al destino que representa (las de recojo no).
+    destino_id = Column(Integer, ForeignKey("destinos.id", ondelete="SET NULL"), nullable=True)
     direccion = Column(String(200), nullable=False)
     distrito = Column(String(80), nullable=True)
     lat = Column(Numeric(9, 6), nullable=True)

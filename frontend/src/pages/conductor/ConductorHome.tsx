@@ -27,7 +27,10 @@ function AsignacionCard({ a, onClick }: { a: Asignacion; onClick: () => void }) 
         <Navigation className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="font-semibold text-stone-100">Pedido #{a.orden_id}</p>
+        <p className="font-semibold text-stone-100">
+          Run #{a.id}
+          {(a.orden_ids?.length ?? 1) > 1 && <span className="ml-1 text-xs font-normal text-stone-400">· {a.orden_ids!.length} órdenes</span>}
+        </p>
         <p className="text-xs text-stone-400">
           {ESTADO_LABEL[a.estado] ?? a.estado}
           {a.fecha_inicio && ` · inició ${formatDate(a.fecha_inicio, false)}`}
