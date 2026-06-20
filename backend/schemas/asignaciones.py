@@ -69,6 +69,7 @@ class SugerenciaConductor(BaseModel):
     capacidad_kg: Optional[float] = None
     peso_requerido_kg: float = 0
     suficiente: bool = True
+    restringido_plaqueo: bool = False
 
 
 class ArchivoEntregaRef(BaseModel):

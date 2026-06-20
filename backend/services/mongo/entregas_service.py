@@ -40,17 +40,20 @@ async def crear_con_archivos(
     uploaded_by: Optional[int],
     destino_id: Optional[int] = None,
 ) -> Dict[str, Any]:
+    from services.imaging import comprimir_imagen
+
     bucket = _bucket(db)
     refs: List[Dict[str, Any]] = []
     for upload in archivos:
         contenido = await upload.read()
         if not contenido:
             continue
+        contenido, ctype, fname = comprimir_imagen(contenido, upload.content_type, upload.filename or "entrega")
         file_id = await bucket.upload_from_stream(
-            upload.filename or "entrega",
+            fname,
             contenido,
             metadata={
-                "content_type": upload.content_type,
+                "content_type": ctype,
                 "asignacion_id": asignacion_id,
                 "uploaded_by": uploaded_by,
             },
@@ -58,8 +61,8 @@ async def crear_con_archivos(
         refs.append(
             {
                 "file_id": str(file_id),
-                "filename": upload.filename or "entrega",
-                "content_type": upload.content_type,
+                "filename": fname,
+                "content_type": ctype,
                 "size": len(contenido),
             }
         )

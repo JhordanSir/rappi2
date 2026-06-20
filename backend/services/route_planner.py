@@ -1,6 +1,7 @@
 """Generación de rutas por calles (OSRM) reutilizable por la creación de órdenes
 y por el endpoint manual /rutas/planificar."""
 import logging
+import math
 from datetime import timedelta
 from typing import Optional
 
@@ -24,6 +25,50 @@ async def _destinos_de(db: AsyncSession, orden_id: int) -> list[Destino]:
     )
 
 
+def _centro_radio(ring: list[list[float]]) -> tuple[float, float, float]:
+    lons = [c[0] for c in ring]
+    lats = [c[1] for c in ring]
+    cx, cy = sum(lons) / len(lons), sum(lats) / len(lats)
+    rad = max((max(lons) - min(lons)) / 2, (max(lats) - min(lats)) / 2)
+    return cx, cy, rad
+
+
+async def _geometria_evitando(puntos: list[tuple[float, float]], mongo_db, evitar: bool) -> dict:
+    """Geometría por calles sobre `puntos` (lon,lat) en orden. Si `evitar` y la ruta cruza
+    una zona de restricción, intenta rebordearla insertando un waypoint de desvío y verifica
+    con la geocerca; usa el rebordeo más corto que ya no cruce. El dict incluye 'evito_ok':
+    True si no hay que evitar, si no cruza, o si se logró rebordear; False si no se pudo."""
+    base = await osrm_service.get_route_multi(puntos)
+    if not evitar or mongo_db is None:
+        return {**base, "evito_ok": True}
+    from services import plaqueo_service
+
+    zonas = await plaqueo_service.zonas_restriccion(mongo_db)
+    if not zonas or not await plaqueo_service.ruta_cruza_restriccion(mongo_db, base["geometry"]):
+        return {**base, "evito_ok": True}
+
+    mejor = None
+    for ring in zonas:
+        cx, cy, rad = _centro_radio(ring)
+        for k in (1.6, 2.2, 3.0, 4.0, 5.0):
+            for ang_deg in range(0, 360, 30):
+                ang = math.radians(ang_deg)
+                desvio = (cx + math.cos(ang) * rad * k, cy + math.sin(ang) * rad * k)
+                cand = await osrm_service.get_route_multi([puntos[0], desvio, *puntos[1:]])
+                if not await plaqueo_service.ruta_cruza_restriccion(mongo_db, cand["geometry"]):
+                    if mejor is None or cand["distancia_km"] < mejor["distancia_km"]:
+                        mejor = cand
+            if mejor is not None:
+                break  # el desvío con el radio más pequeño que evita la zona
+        if mejor is not None:
+            break
+    if mejor is not None:
+        logger.info("Ruta rebordeó la zona de restricción (plaqueo).")
+        return {**mejor, "evito_ok": True}
+    logger.warning("No se pudo rebordear la zona de restricción.")
+    return {**base, "evito_ok": False}
+
+
 async def _crear_ruta_desde_stops(
     db: AsyncSession,
     primary_orden_id: int,
@@ -32,10 +77,12 @@ async def _crear_ruta_desde_stops(
     mongo_db=None,
     generar_geocerca: bool = True,
     tolerancia_metros: int = 80,
+    evitar_zonas: bool = False,
 ) -> RutaPlanificada | None:
     """Crea una única RutaPlanificada multiparada a partir de `stops` (el primero es el
     origen/recojo principal, fijado como source). Optimiza la secuencia con OSRM y
-    reemplaza cualquier ruta previa de las órdenes involucradas.
+    reemplaza cualquier ruta previa de las órdenes involucradas. Si `evitar_zonas`, la
+    geometría rebordea las zonas de restricción vehicular (plaqueo).
 
     stops: dicts con {orden_id, destino_id|None, direccion, distrito, lon, lat, estado}.
     """
@@ -43,14 +90,14 @@ async def _crear_ruta_desde_stops(
     if len(puntos) < 2:
         return None
 
+    # Con >=3 puntos optimizamos primero el orden de visita; luego trazamos la geometría
+    # (rebordeando la zona de restricción si corresponde) sobre esa secuencia.
     if len(puntos) >= 3:
         res = await osrm_service.optimize_trip(puntos, roundtrip=False)
-        geometry, distancia_km, tiempo_seg = res["geometry"], res["distancia_km"], res["tiempo_segundos"]
-        # El source (índice 0) debe quedar primero; conservamos ese orden óptimo.
         stops = [stops[i] for i in res["orden"]]
-    else:
-        res = await osrm_service.get_route_multi(puntos)
-        geometry, distancia_km, tiempo_seg = res["geometry"], res["distancia_km"], res["tiempo_segundos"]
+    puntos_ord = [(s["lon"], s["lat"]) for s in stops]
+    geo = await _geometria_evitando(puntos_ord, mongo_db, evitar_zonas)
+    geometry, distancia_km, tiempo_seg = geo["geometry"], geo["distancia_km"], geo["tiempo_segundos"]
 
     # Reemplaza rutas previas de todas las órdenes involucradas (evita rutas huérfanas).
     previas = (
@@ -136,9 +183,10 @@ async def generar_ruta_orden(
 
 async def generar_run(
     db: AsyncSession, primary_orden: Orden, ordenes: list[Orden], mongo_db=None,
-    generar_geocerca: bool = True, tolerancia_metros: int = 80,
+    generar_geocerca: bool = True, tolerancia_metros: int = 80, evitar_zonas: bool = False,
 ) -> RutaPlanificada | None:
-    """Genera UNA ruta consolidada que agrupa varias órdenes (recojos + entregas)."""
+    """Genera UNA ruta consolidada que agrupa varias órdenes (recojos + entregas).
+    Si `evitar_zonas`, la geometría rebordea la zona de restricción vehicular (plaqueo)."""
     stops: list[dict] = []
     # La orden principal primero (su recojo es el source de la optimización).
     ordenadas = [primary_orden] + [o for o in ordenes if o.id != primary_orden.id]
@@ -149,7 +197,26 @@ async def generar_run(
     return await _crear_ruta_desde_stops(
         db, primary_orden.id, stops, orden_ids, mongo_db=mongo_db,
         generar_geocerca=generar_geocerca, tolerancia_metros=tolerancia_metros,
+        evitar_zonas=evitar_zonas,
     )
+
+
+async def run_es_evitable(db: AsyncSession, primary_orden: Orden, ordenes: list[Orden], mongo_db) -> bool:
+    """Pre-chequeo (sin persistir): ¿se puede trazar la ruta del run rebordeando la zona
+    de restricción? Sirve para decidir si bloquear la asignación antes de crearla."""
+    stops: list[dict] = []
+    ordenadas = [primary_orden] + [o for o in ordenes if o.id != primary_orden.id]
+    for o in ordenadas:
+        stops += _stops_de_orden(o, await _destinos_de(db, o.id))
+    puntos = [(s["lon"], s["lat"]) for s in stops]
+    if len(puntos) < 2:
+        return True
+    if len(puntos) >= 3:
+        res = await osrm_service.optimize_trip(puntos, roundtrip=False)
+        stops = [stops[i] for i in res["orden"]]
+    puntos_ord = [(s["lon"], s["lat"]) for s in stops]
+    geo = await _geometria_evitando(puntos_ord, mongo_db, True)
+    return bool(geo["evito_ok"])
 
 
 def corredor_polygon(coords, tol_m: int):

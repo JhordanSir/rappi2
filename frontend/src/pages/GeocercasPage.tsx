@@ -14,11 +14,12 @@ import { Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { MapView, type LatLng } from "@/components/map/MapView";
 
-// El corredor de ruta (ruta_buffer) se genera automáticamente al planificar; aquí solo
-// se dibujan zonas de entrega o zonas prohibidas.
-const TIPOS = ["zona_entrega", "prohibida"] as const;
-const TIPO_COLOR: Record<string, string> = { zona_entrega: "#10b981", ruta_buffer: "#0d9488", prohibida: "#f43f5e" };
-const TIPO_TONE: Record<string, "green" | "brand" | "red"> = { zona_entrega: "green", ruta_buffer: "brand", prohibida: "red" } as any;
+// El corredor de ruta (ruta_buffer) se genera automáticamente al planificar; aquí se
+// dibujan zonas de entrega, zonas prohibidas y la zona de restricción vehicular (plaqueo).
+const TIPOS = ["zona_entrega", "prohibida", "restriccion_vehicular"] as const;
+const TIPO_COLOR: Record<string, string> = { zona_entrega: "#10b981", ruta_buffer: "#0d9488", prohibida: "#f43f5e", restriccion_vehicular: "#f59e0b" };
+const TIPO_TONE: Record<string, string> = { zona_entrega: "green", ruta_buffer: "brand", prohibida: "red", restriccion_vehicular: "amber" };
+const TIPO_LABEL: Record<string, string> = { zona_entrega: "Zona de entrega", ruta_buffer: "Corredor de ruta", prohibida: "Zona prohibida", restriccion_vehicular: "Restricción vehicular (plaqueo)" };
 
 function ring(g: Geocerca): LatLng[] {
   if (g.geometry?.type !== "Polygon") return [];
@@ -87,7 +88,7 @@ export default function GeocercasPage() {
                 if (pts.length < 3) return null;
                 return (
                   <Polygon key={g.id} positions={pts} pathOptions={{ color: TIPO_COLOR[g.tipo] ?? "#0d9488", weight: 2, fillOpacity: 0.12 }}>
-                    <LTooltip>{g.tipo} {g.activa ? "" : "(inactiva)"}</LTooltip>
+                    <LTooltip>{TIPO_LABEL[g.tipo] ?? g.tipo} {g.activa ? "" : "(inactiva)"}</LTooltip>
                   </Polygon>
                 );
               })}
@@ -108,7 +109,7 @@ export default function GeocercasPage() {
               <CardBody className="flex items-center gap-3 border-t border-sillar-100">
                 <Field label="Tipo de zona" className="w-56">
                   <Select value={tipo} onChange={(e) => setTipo(e.target.value as any)}>
-                    {TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}
+                    {TIPOS.map((t) => <option key={t} value={t}>{TIPO_LABEL[t] ?? t}</option>)}
                   </Select>
                 </Field>
                 <p className="text-sm text-stone-500">{draft.length} vértices marcados</p>
@@ -136,7 +137,7 @@ export default function GeocercasPage() {
                   <div className="flex items-center gap-2.5">
                     <Hexagon className="h-4 w-4" style={{ color: TIPO_COLOR[g.tipo] }} />
                     <div>
-                      <p className="text-sm font-medium text-stone-800">{g.tipo}</p>
+                      <p className="text-sm font-medium text-stone-800">{TIPO_LABEL[g.tipo] ?? g.tipo}</p>
                       <p className="text-xs text-stone-400">{g.ruta_id ? `Ruta #${g.ruta_id}` : "Manual"} {g.tolerance_m ? `· ${g.tolerance_m}m` : ""}</p>
                     </div>
                   </div>

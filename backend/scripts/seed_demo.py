@@ -1,19 +1,22 @@
 """Puebla la plataforma con datos demo ambientados en Arequipa para probar cada módulo.
 
 Crea: clientes + direcciones (con lat/lon), flota de vehículos, usuarios y conductores,
-órdenes en todos los estados, asignaciones (Asignada / EnCurso / Finalizada con entrega),
-rutas con paradas, pagos y facturas, incidencias; y en MongoDB: pings GPS (trails en vivo
-e históricos), geocercas (corredores y zonas de entrega) y notificaciones.
+órdenes en todos los estados (incluyendo MULTIDESTINO, un RUN AGRUPADO de varias órdenes,
+entregas parciales con un destino fallido, ajustes de precio, niveles de servicio y envíos
+programados), rutas multiparada, pagos y facturas, incidencias (chofer / automática / admin);
+y en MongoDB: pings GPS, geocercas, notificaciones y EVIDENCIA real de entrega (imágenes).
 
 Es idempotente: limpia los datos de dominio (no toca roles ni el usuario admin) y reinserta.
 
 Uso (con el stack levantado):  docker compose exec api python -m scripts.seed_demo
 """
 import asyncio
+import os
 import random
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 from sqlalchemy import delete, select
 
 from core.database import AsyncSessionLocal
@@ -34,6 +37,10 @@ random.seed(2026)
 now = datetime.now(timezone.utc)
 DEMO_DOMAIN = "demo.rappi2.com"
 
+ASSETS = os.path.join(os.path.dirname(__file__), "assets")
+# Imágenes de evidencia (se alternan en las entregas). La 1ª es liviana; la 2ª, pesada.
+EVID_IMAGES = [("HK-yjwpXcAAmZ5Z.jpeg", "image/jpeg"), ("gopherrappi.png", "image/png")]
+
 # Distritos de Arequipa: (lat, lon)
 AQP = {
     "Cercado": (-16.3989, -71.5350),
@@ -48,6 +55,8 @@ AQP = {
     "Mariano Melgar": (-16.4000, -71.5050),
 }
 DISTRITOS = list(AQP.items())
+RECEPTORES = ["Sr. Gutiérrez", "Sra. Mamani", "Recepción", "Portería", "Farmacia Central", "Minimarket"]
+PESOS = [3.0, 8.0, 1.5, 12.0, 5.0, 0.8, 20.0]
 
 PERMS = {
     "Despachador": (
@@ -64,12 +73,10 @@ def lerp(a, b, t):
 
 
 def punto(o, d, t):
-    """Punto (lat, lon) a fracción t del segmento o->d."""
     return (lerp(o[0], d[0], t), lerp(o[1], d[1], t))
 
 
 def corredor(o, d, pad=0.013):
-    """Anillo GeoJSON [lon,lat] rodeando el segmento o->d (corredor de ruta)."""
     minlat, maxlat = min(o[0], d[0]) - pad, max(o[0], d[0]) + pad
     minlon, maxlon = min(o[1], d[1]) - pad, max(o[1], d[1]) + pad
     return [[minlon, minlat], [maxlon, minlat], [maxlon, maxlat], [minlon, maxlat], [minlon, minlat]]
@@ -81,7 +88,6 @@ def zona(center, r=0.012):
 
 
 def resample(line, n):
-    """Reduce/ajusta una polilínea a n puntos uniformes por índice."""
     if not line or len(line) <= n:
         return line
     step = (len(line) - 1) / (n - 1)
@@ -94,13 +100,17 @@ async def road_points(o, d):
     try:
         async with httpx.AsyncClient(timeout=12) as client:
             r = await client.get(url)
-            coords = r.json()["routes"][0]["geometry"]["coordinates"]  # [lon, lat]
+            coords = r.json()["routes"][0]["geometry"]["coordinates"]
         line = [(c[1], c[0]) for c in coords]
         if len(line) >= 2:
             return line
     except Exception:
         pass
     return [punto(o, d, k / 13) for k in range(14)]
+
+
+def _estado_parada(estado_destino: str) -> str:
+    return {"Entregado": "Visitada", "Fallida": "Omitida"}.get(estado_destino, "Pendiente")
 
 
 async def limpiar(db):
@@ -124,6 +134,8 @@ async def main():
     except Exception:
         pass
     mongo = get_database()
+
+    ping_docs, geo_docs, evid_specs = [], [], []
 
     async with AsyncSessionLocal() as db:
         await limpiar(db)
@@ -187,118 +199,192 @@ async def main():
             conductores.append(cond)
         await db.commit()
 
-        # ---- Órdenes + ciclo de vida ----
-        # escenarios: (estado_orden, escenario, cliente_idx, cond_idx)
-        escenarios = [
-            ("Entregado", "fin", 0, 4), ("Entregado", "fin", 1, 5), ("Entregado", "fin", 2, 4),
-            ("En Tránsito", "curso", 0, 0), ("En Tránsito", "curso_alerta", 3, 1),
-            ("En Proceso", "asignada", 4, 2), ("En Proceso", "asignada", 1, 3),
-            ("Pendiente", "pendiente", 5, None), ("Pendiente", "pendiente", 2, None),
-            ("Cancelado", "cancelado", 3, None), ("Pendiente", "pendiente", 0, None), ("Pendiente", "pendiente", 4, None),
-        ]
-        ping_docs, geo_docs = [], []
-
-        for idx, (estado, esc, ci, condi) in enumerate(escenarios):
-            (do, co) = DISTRITOS[idx % len(DISTRITOS)]
-            (dd, cd) = DISTRITOS[(idx + 4) % len(DISTRITOS)]
-            orden = Orden(
+        async def crear_orden(ci, estado, dlist, nivel="estandar", ajuste=None, prog_h=None, dest_estados=None):
+            """Crea una orden con N destinos (dlist = lista de (distrito, (lat,lon)))."""
+            (do, co) = DISTRITOS[random.randrange(len(DISTRITOS))]
+            base = round(random.uniform(40, 140), 2)
+            total = round(base * len(dlist) + (ajuste or 0), 2)
+            o = Orden(
                 cliente_id=clientes[ci].id, estado=estado,
                 direccion_origen=f"Almacén {do}", distrito_origen=do, lat_origen=co[0], lon_origen=co[1],
-                direccion_destino=f"Av. {dd} {random.randint(100,1999)}", distrito_destino=dd, lat_destino=cd[0], lon_destino=cd[1],
-                total=round(random.uniform(45, 480), 2),
+                direccion_destino=f"Av. {dlist[0][0]} {random.randint(100,1999)}", distrito_destino=dlist[0][0],
+                lat_destino=dlist[0][1][0], lon_destino=dlist[0][1][1],
+                total=total, nivel_servicio=nivel,
+                programado_para=(now + timedelta(hours=prog_h)) if prog_h else None,
+                ajuste_monto=ajuste,
+                ajuste_motivo=("Cliente frecuente" if ajuste and ajuste < 0 else ("Recargo zona alejada" if ajuste else None)),
                 fecha_creacion=now - timedelta(days=random.randint(0, 18), hours=random.randint(0, 23)),
             )
-            db.add(orden)
+            db.add(o)
             await db.flush()
+            destinos = []
+            for j, (dn, dc) in enumerate(dlist):
+                de = (dest_estados or [None] * len(dlist))[j] or "Pendiente"
+                d = Destino(
+                    orden_id=o.id, secuencia=j + 1,
+                    direccion=f"Av. {dn} {random.randint(100,1999)}", distrito=dn, lat=dc[0], lon=dc[1],
+                    peso_kg=PESOS[(j + ci) % len(PESOS)], nombre_destinatario=random.choice(RECEPTORES),
+                    subtotal=base, estado=de,
+                    entrega_receptor=(random.choice(RECEPTORES) if de == "Entregado" else None),
+                    fecha_entrega=(now - timedelta(hours=random.randint(1, 80)) if de in ("Entregado", "Fallida") else None),
+                    nota=("Cliente ausente al momento de la entrega" if de == "Fallida" else None),
+                )
+                db.add(d)
+                await db.flush()
+                destinos.append(d)
+            return o, (co, do), destinos
 
-            # Un destino por orden (el modelo multidestino es la fuente autoritativa).
-            destino = Destino(
-                orden_id=orden.id, secuencia=1,
-                direccion=orden.direccion_destino, distrito=dd, lat=cd[0], lon=cd[1],
-                subtotal=orden.total,
-                estado="Entregado" if estado == "Entregado" else "Pendiente",
-            )
-            db.add(destino)
+        async def crear_ruta(o, origen_latlon, do, destinos, origen_estado, fecha_inicio=None, fecha_fin=None, corredor_geo=False):
+            road = await road_points(origen_latlon, (float(destinos[-1].lat), float(destinos[-1].lon)))
+            geom = {"type": "LineString", "coordinates": [[p[1], p[0]] for p in road]}
+            ruta = RutaPlanificada(orden_id=o.id, distancia_km=round(random.uniform(3, 16), 2), tiempo_estimado=timedelta(minutes=random.randint(15, 55)), geometria=geom)
+            ruta.paradas.append(Parada(orden_id=o.id, direccion=o.direccion_origen, distrito=do, lat=origen_latlon[0], lon=origen_latlon[1], secuencia=1, estado=origen_estado, fecha_paso=fecha_inicio))
+            for k, d in enumerate(destinos):
+                pe = _estado_parada(d.estado)
+                ruta.paradas.append(Parada(orden_id=o.id, destino_id=d.id, direccion=d.direccion, distrito=d.distrito, lat=d.lat, lon=d.lon, secuencia=2 + k, estado=pe, fecha_paso=(fecha_fin if pe in ("Visitada", "Omitida") else None)))
+            db.add(ruta)
             await db.flush()
+            if corredor_geo:
+                geo_docs.append({"ruta_id": ruta.id, "orden_id": o.id, "tipo": "ruta_buffer", "geometry": {"type": "Polygon", "coordinates": [corredor(origen_latlon, (float(destinos[-1].lat), float(destinos[-1].lon)))]}, "tolerance_m": 80, "activa": True, "created_at": now})
+            return ruta, road
+
+        def add_evid(asg, destinos, uploaded_by, ts):
+            for d in destinos:
+                if d.estado == "Entregado":
+                    evid_specs.append({
+                        "asignacion_id": asg.id, "destino_id": d.id,
+                        "receptor": d.entrega_receptor or "Recepción",
+                        "lat": float(d.lat), "lon": float(d.lon), "ts": ts,
+                        "img": len(evid_specs),
+                    })
+
+        # ---- Escenarios principales (uno por combinación, con multidestino variado) ----
+        # (estado, esc, cliente, conductor, lista_de_distritos_destino, nivel, ajuste, prog_h)
+        def dl(n, start):
+            return [DISTRITOS[(start + j) % len(DISTRITOS)] for j in range(n)]
+
+        escenarios = [
+            ("Entregado", "fin", 0, 4, dl(1, 4), "estandar", None, None),
+            ("Entregado", "fin", 1, 5, dl(3, 1), "express", -15, None),     # multidestino entregado
+            ("Entregado", "fin_parcial", 2, 0, dl(2, 6), "estandar", None, None),  # 1 entregado + 1 fallido
+            ("En Tránsito", "curso", 3, 1, dl(2, 2), "urgente", None, None),  # multidestino en curso
+            ("En Tránsito", "curso_alerta", 4, 2, dl(1, 7), "estandar", None, None),
+            ("En Proceso", "asignada", 5, 3, dl(2, 3), "estandar", 20, None),
+            ("Pendiente", "pendiente", 1, None, dl(3, 0), "estandar", None, None),  # multidestino pendiente
+            ("Pendiente", "pendiente", 2, None, dl(1, 5), "express", None, 8),       # programado
+            ("Cancelado", "cancelado", 3, None, dl(1, 9), "estandar", None, None),
+            ("Pendiente de Pago", "porpagar", 0, None, dl(2, 2), "express", None, 24),  # cliente sin pagar
+            ("Pendiente", "pendiente", 4, None, dl(1, 1), "estandar", -8, None),
+        ]
+
+        for estado, esc, ci, condi, dlist, nivel, ajuste, prog_h in escenarios:
+            if esc == "fin":
+                dest_estados = ["Entregado"] * len(dlist)
+            elif esc == "fin_parcial":
+                dest_estados = ["Entregado"] + ["Fallida"] * (len(dlist) - 1)
+            else:
+                dest_estados = None
+            o, (co, do), destinos = await crear_orden(ci, estado, dlist, nivel, ajuste, prog_h, dest_estados)
 
             if condi is None:
                 continue
-
             cond = conductores[condi]
-            asg = Asignacion(orden_id=orden.id, conductor_id=cond.id, vehiculo_placa=cond.vehiculo_placa)
-            asg.ordenes = [orden]  # enlaza la M2M (run de una sola orden)
+            asg = Asignacion(orden_id=o.id, conductor_id=cond.id, vehiculo_placa=cond.vehiculo_placa)
+            asg.ordenes = [o]
             db.add(asg)
-            await db.flush()  # asg.id disponible para los pings
-            ruta_needed = esc in ("fin", "curso", "curso_alerta")
+            await db.flush()
 
-            road = await road_points(co, cd)  # recorrido real por calles
-            if esc == "fin":
+            origen_latlon = (co, do)
+            if esc in ("fin", "fin_parcial"):
                 ini = now - timedelta(days=random.randint(1, 6), minutes=random.randint(0, 200))
-                asg.estado = "Finalizada"
-                asg.fecha_inicio = ini
-                asg.fecha_fin = ini + timedelta(minutes=random.randint(28, 75))
-                asg.entrega_lat, asg.entrega_lon = cd[0], cd[1]
-                asg.entrega_receptor = random.choice(["Recepción", "Portería", "Sr. Gutiérrez", "Sra. Mamani"])
+                fin = ini + timedelta(minutes=random.randint(28, 75))
+                asg.estado, asg.fecha_inicio, asg.fecha_fin = "Finalizada", ini, fin
+                asg.entrega_receptor = random.choice(RECEPTORES)
                 cond.disponibilidad = "Disponible"
-                # trail histórico completo origen->destino, siguiendo las calles
-                base = asg.fecha_inicio
-                pts = resample(road, 12)
-                for k, p in enumerate(pts):
-                    ping_docs.append(_ping(asg, cond, p, base + timedelta(minutes=k * 4), 18 + random.random() * 22))
+                ruta, road = await crear_ruta(o, (co[0], co[1]), do, destinos, "Visitada", ini, fin, corredor_geo=False)
+                for k, p in enumerate(resample(road, 12)):
+                    ping_docs.append(_ping(asg, cond, p, ini + timedelta(minutes=k * 4), 18 + random.random() * 22))
+                add_evid(asg, destinos, cond.usuario_id, fin)
             elif esc in ("curso", "curso_alerta"):
-                asg.estado = "EnCurso"
-                asg.fecha_inicio = now - timedelta(minutes=28)
+                asg.estado, asg.fecha_inicio = "EnCurso", now - timedelta(minutes=28)
                 cond.disponibilidad = "Ocupado"
-                # trail reciente (en vivo): ~70% del recorrido por calles
+                ruta, road = await crear_ruta(o, (co[0], co[1]), do, destinos, "Visitada", asg.fecha_inicio, None, corredor_geo=True)
                 cut = max(2, int(len(road) * 0.7))
                 pts = resample(road[:cut], 12)
                 n = len(pts)
                 for k, p in enumerate(pts):
                     if esc == "curso_alerta" and k >= n - 2:
-                        p = (p[0] + 0.03, p[1] + 0.03)  # se sale del corredor -> dispara alerta
+                        p = (p[0] + 0.03, p[1] + 0.03)  # fuera del corredor
                     ping_docs.append(_ping(asg, cond, p, now - timedelta(minutes=(n - 1 - k) * 2.3), 12 + random.random() * 30))
+                if esc == "curso_alerta":
+                    db.add(Incidencia(asignacion_id=asg.id, tipo="Desvío de ruta", severidad=4, origen="automatica", notas="Detección automática: el conductor salió del corredor.", fecha=now - timedelta(minutes=6)))
             elif esc == "asignada":
                 asg.estado = "Asignada"
                 cond.disponibilidad = "Ocupado"
+                await crear_ruta(o, (co[0], co[1]), do, destinos, "Pendiente", None, None, corredor_geo=False)
 
-            if ruta_needed:
-                geom = {"type": "LineString", "coordinates": [[p[1], p[0]] for p in road]}
-                ruta = RutaPlanificada(orden_id=orden.id, distancia_km=round(random.uniform(3, 16), 2), tiempo_estimado=timedelta(minutes=random.randint(15, 55)), geometria=geom)
-                visitado = esc == "fin"
-                ruta.paradas.append(Parada(orden_id=orden.id, direccion=orden.direccion_origen, distrito=do, lat=co[0], lon=co[1], secuencia=1, estado="Visitada", fecha_paso=asg.fecha_inicio))
-                ruta.paradas.append(Parada(orden_id=orden.id, destino_id=destino.id, direccion=orden.direccion_destino, distrito=dd, lat=cd[0], lon=cd[1], secuencia=2, estado="Visitada" if visitado else "Pendiente", fecha_paso=asg.fecha_fin if visitado else None))
-                db.add(ruta)
-                await db.flush()
-                if esc in ("curso", "curso_alerta"):
-                    geo_docs.append({"ruta_id": ruta.id, "orden_id": orden.id, "tipo": "ruta_buffer", "geometry": {"type": "Polygon", "coordinates": [corredor(co, cd)]}, "tolerance_m": 80, "activa": True, "created_at": now})
-
-            # pagos / facturas para entregadas
-            if esc == "fin":
+            if esc in ("fin", "fin_parcial"):
                 pago_fecha = now - timedelta(hours=random.choice([2, 6, 20, 30, 96, 200]))
-                db.add(Pago(orden_id=orden.id, monto=orden.total, estado="Pagado", referencia_banco=f"OP-{random.randint(10000,99999)}", fecha_pago=pago_fecha))
-                db.add(Factura(orden_id=orden.id, ruc="20456789012", monto=orden.total, url="https://comprobantes.demo/factura.pdf", fecha=pago_fecha))
+                db.add(Pago(orden_id=o.id, monto=o.total, estado="Pagado", referencia_banco=f"OP-{random.randint(10000,99999)}", fecha_pago=pago_fecha))
+                db.add(Factura(orden_id=o.id, ruc="20456789012", monto=o.total, url="https://comprobantes.demo/factura.pdf", fecha=pago_fecha))
 
         await db.commit()
 
-        # pagos adicionales (para la serie de ventas de 30 días) sobre órdenes existentes
+        # ---- RUN AGRUPADO: 2 órdenes de un cliente en una sola ruta de un conductor, en curso ----
+        gcond = conductores[5]  # Ana Ticona (conductor6), Van AQP-606 (cap 2000)
+        run_orders, run_destinos = [], []
+        for k in range(2):
+            o, (co, do), destinos = await crear_orden(0, "En Tránsito", dl(1, k * 3), "estandar")
+            run_orders.append((o, co, do))
+            run_destinos.append(destinos[0])
+        primary = run_orders[0][0]
+        gasg = Asignacion(orden_id=primary.id, conductor_id=gcond.id, vehiculo_placa=gcond.vehiculo_placa, estado="EnCurso", fecha_inicio=now - timedelta(minutes=18))
+        gasg.ordenes = [o for o, _, _ in run_orders]
+        db.add(gasg)
+        await db.flush()
+        gcond.disponibilidad = "Ocupado"
+        # Ruta consolidada: recojos de ambas órdenes + las dos entregas.
+        o0, co0, do0 = run_orders[0]
+        road = await road_points((co0[0], co0[1]), (float(run_destinos[-1].lat), float(run_destinos[-1].lon)))
+        gruta = RutaPlanificada(orden_id=primary.id, distancia_km=round(random.uniform(6, 18), 2), tiempo_estimado=timedelta(minutes=random.randint(25, 60)), geometria={"type": "LineString", "coordinates": [[p[1], p[0]] for p in road]})
+        seq = 1
+        for o, co, do in run_orders:
+            gruta.paradas.append(Parada(orden_id=o.id, direccion=o.direccion_origen, distrito=do, lat=co[0], lon=co[1], secuencia=seq, estado="Visitada", fecha_paso=gasg.fecha_inicio))
+            seq += 1
+        for d in run_destinos:
+            gruta.paradas.append(Parada(orden_id=d.orden_id, destino_id=d.id, direccion=d.direccion, distrito=d.distrito, lat=d.lat, lon=d.lon, secuencia=seq, estado="Pendiente"))
+            seq += 1
+        db.add(gruta)
+        await db.flush()
+        geo_docs.append({"ruta_id": gruta.id, "orden_id": primary.id, "tipo": "ruta_buffer", "geometry": {"type": "Polygon", "coordinates": [corredor((co0[0], co0[1]), (float(run_destinos[-1].lat), float(run_destinos[-1].lon)), pad=0.02)]}, "tolerance_m": 90, "activa": True, "created_at": now})
+        for k, p in enumerate(resample(road[: max(2, int(len(road) * 0.4))], 8)):
+            ping_docs.append(_ping(gasg, gcond, p, now - timedelta(minutes=(8 - k) * 2), 15 + random.random() * 20))
+        await db.commit()
+
+        # ---- Incidencias variadas (chofer / admin), además de las automáticas ya creadas ----
+        asgs = (await db.execute(select(Asignacion))).scalars().all()
+        finalizadas = [a for a in asgs if a.estado == "Finalizada"]
+        encurso = [a for a in asgs if a.estado == "EnCurso"]
+        tipos_chofer = ["Retraso por tráfico", "Dirección incorrecta", "Cliente ausente", "Daño en paquete", "Clima adverso"]
+        for a in random.sample(encurso + finalizadas, min(4, len(asgs))):
+            db.add(Incidencia(asignacion_id=a.id, tipo=random.choice(tipos_chofer), severidad=random.randint(2, 4), origen="chofer", notas="Reportado por el conductor en ruta.", fecha=now - timedelta(hours=random.randint(1, 60))))
+        if finalizadas:
+            db.add(Incidencia(asignacion_id=finalizadas[0].id, tipo="Cierre forzado", severidad=2, origen="admin", notas="Entrega confirmada por teléfono con el cliente.", fecha=now - timedelta(hours=2)))
+        await db.commit()
+
+        # pagos adicionales para la serie de ventas
         ordenes_all = (await db.execute(select(Orden))).scalars().all()
-        for _ in range(10):
+        for _ in range(12):
             o = random.choice(ordenes_all)
             estado_pago = random.choices(["Pagado", "Pendiente", "Fallido"], weights=[7, 2, 1])[0]
             db.add(Pago(orden_id=o.id, monto=round(random.uniform(40, 300), 2), estado=estado_pago, referencia_banco=f"REF-{random.randint(1000,9999)}", fecha_pago=now - timedelta(days=random.randint(0, 29), hours=random.randint(0, 23))))
         await db.commit()
 
-        # incidencias sobre asignaciones existentes
-        asgs = (await db.execute(select(Asignacion))).scalars().all()
-        tipos_inc = ["Retraso por tráfico", "Dirección incorrecta", "Cliente ausente", "Daño en paquete", "Clima adverso"]
-        for a in random.sample(asgs, min(4, len(asgs))):
-            db.add(Incidencia(asignacion_id=a.id, tipo=random.choice(tipos_inc), severidad=random.randint(2, 5), notas="Reportado por el conductor en ruta.", fecha=now - timedelta(hours=random.randint(1, 60))))
-        await db.commit()
-
         admin = (await db.execute(select(Usuario).where(Usuario.username == "admin"))).scalar_one_or_none()
         admin_id = admin.id if admin else None
+        total_ordenes = len(ordenes_all)
 
-    # ---- MongoDB ----
+    # ---- MongoDB: GPS, geocercas, evidencia, notificaciones ----
     if ping_docs:
         await mongo["gps_tracking"].delete_many({})
         await mongo["gps_tracking"].insert_many(ping_docs)
@@ -308,8 +394,32 @@ async def main():
         {"ruta_id": None, "orden_id": None, "tipo": "zona_entrega", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["Cayma"])]}, "tolerance_m": None, "activa": True, "created_at": now},
         {"ruta_id": None, "orden_id": None, "tipo": "zona_entrega", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["José L. Bustamante y Rivero"])]}, "tolerance_m": None, "activa": True, "created_at": now},
         {"ruta_id": None, "orden_id": None, "tipo": "prohibida", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["Cercado"], 0.006)]}, "tolerance_m": None, "activa": True, "created_at": now},
+        # Plaqueo: centro histórico (Plaza de Armas / Cercado). Zona editable por el admin.
+        {"ruta_id": None, "orden_id": None, "tipo": "restriccion_vehicular", "geometry": {"type": "Polygon", "coordinates": [zona((-16.3988, -71.5369), 0.006)]}, "tolerance_m": None, "activa": True, "created_at": now},
     ]
     await mongo["geocercas"].insert_many(geo_docs)
+
+    # Evidencia de entrega (imágenes reales en GridFS) para los destinos entregados.
+    await mongo["entregas"].delete_many({})
+    for coll in ("entregas_files.files", "entregas_files.chunks"):
+        await mongo[coll].delete_many({})
+    from services.imaging import comprimir_imagen
+    bucket = AsyncIOMotorGridFSBucket(mongo, bucket_name="entregas_files")
+    cache = {}
+    for spec in evid_specs:
+        name, ctype0 = EVID_IMAGES[spec["img"] % len(EVID_IMAGES)]
+        if name not in cache:
+            with open(os.path.join(ASSETS, name), "rb") as f:
+                cache[name] = comprimir_imagen(f.read(), ctype0, name)  # (data, ctype, fname)
+        data, ctype, fname = cache[name]
+        file_id = await bucket.upload_from_stream(fname, data, metadata={"content_type": ctype, "asignacion_id": spec["asignacion_id"], "uploaded_by": admin_id})
+        await mongo["entregas"].insert_one({
+            "asignacion_id": spec["asignacion_id"], "destino_id": spec["destino_id"],
+            "archivos": [{"file_id": str(file_id), "filename": fname, "content_type": ctype, "size": len(data)}],
+            "tipo": "foto", "descripcion": f"Entrega destino #{spec['destino_id']}",
+            "lat": spec["lat"], "lon": spec["lon"], "receptor": spec["receptor"],
+            "uploaded_by": admin_id, "timestamp": spec["ts"],
+        })
 
     await mongo["notificaciones"].delete_many({"destinatario_tipo": {"$in": ["usuario", "cliente"]}})
     notifs = []
@@ -328,15 +438,16 @@ async def main():
     await close_mongo_connection()
 
     print("=" * 60)
-    print("  Datos demo cargados (Arequipa) ✓")
+    print("  Datos demo AMPLIADOS cargados (Arequipa) ✓")
     print("=" * 60)
     print(f"  Clientes: {len(clientes)} · Vehículos: {len(vehiculos_def)} · Conductores: {len(conductores)}")
-    print(f"  Órdenes: {len(escenarios)} (todos los estados) · Pings GPS: {len(ping_docs)} · Geocercas: {len(geo_docs)}")
-    print("  Usuarios de prueba (password: demo123):")
-    print("    - admin / admin123        (Admin · todo)")
-    print("    - despachador / demo123   (operación)")
-    print("    - conductor1..6 / demo123 (conductor)")
-    print("    - cliente / demo123       (rol Cliente · solo 'Mis órdenes')")
+    print(f"  Órdenes: {total_ordenes} (multidestino, run agrupado, parcial, programadas, ajustes)")
+    print(f"  Pings GPS: {len(ping_docs)} · Geocercas: {len(geo_docs)} · Evidencias (fotos): {len(evid_specs)}")
+    print("  Para probar:")
+    print("    - admin / admin123        → órdenes multidestino, evidencia, run agrupado, incidencias")
+    print("    - conductor6 / demo123    → RUN AGRUPADO (2 órdenes) en curso, entregar/no entregar por destino")
+    print("    - conductor2 / demo123    → entrega en curso con multidestino")
+    print("    - cliente / demo123       → sus pedidos (incluye multidestino) y prueba de entrega")
     print("=" * 60)
 
 

@@ -19,7 +19,7 @@ DisponibilidadConductor = Literal["Disponible", "Ocupado", "Inactivo"]
 EstadoAsignacion = Literal["Asignada", "EnCurso", "Finalizada", "Cancelada"]
 EstadoParada = Literal["Pendiente", "Visitada", "Omitida"]
 EstadoPago = Literal["Pendiente", "Pagado", "Fallido", "Reembolsado"]
-TipoGeocerca = Literal["ruta_buffer", "zona_entrega", "prohibida"]
+TipoGeocerca = Literal["ruta_buffer", "zona_entrega", "prohibida", "restriccion_vehicular"]
 TipoEvidencia = Literal["foto", "video", "audio", "documento"]
 TipoDestinatario = Literal["usuario", "cliente"]
 

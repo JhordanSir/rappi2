@@ -39,6 +39,7 @@ from schemas.asignaciones import (
 from schemas.common import TipoEvidencia
 from services.mongo import entregas_service, geocerca_service, tracking_service
 from services.mongo.tracking_service import _haversine_m
+from services import plaqueo_service, route_planner
 from services.pricing_service import obtener_tarifa, peso_cobrable
 from services.route_planner import generar_run
 
@@ -136,7 +137,33 @@ async def create_asignacion(
     if vehiculo.estado != "Operativo":
         raise HTTPException(status_code=400, detail=f"Vehiculo no operativo (actual: {vehiculo.estado})")
 
+    # Plaqueo (centro histórico de Arequipa). Si un recojo/entrega cae DENTRO de la zona en
+    # un día restringido, es inevitable y se bloquea; si solo la ruta cruza la zona pero los
+    # puntos están fuera, se permite y la ruta se reconstruye rebordeando el centro.
+    plaqueo = await plaqueo_service.evaluar_asignacion(db, mongo_db, ordenes, payload.vehiculo_placa)
+    if plaqueo["bloquear"]:
+        b = plaqueo["bloquear"]
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Plaqueo: el vehículo {b['placa']} (placa termina en {b['digito']}) no puede "
+                f"circular el {b['dia']} y la orden {b['orden_id']} recoge/entrega dentro del centro "
+                "histórico. Elige otro vehículo o reprograma la entrega."
+            ),
+        )
+    evitar_zonas = plaqueo["reroute"]
+
     primary = ordenes[0]
+    # Si el plaqueo obliga a rebordear pero no existe una ruta que evite el centro, se
+    # bloquea (no se asigna un vehículo a una ruta que cruzaría ilegalmente la zona).
+    if evitar_zonas and not await route_planner.run_es_evitable(db, primary, ordenes, mongo_db):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Plaqueo: con el vehículo {payload.vehiculo_placa} no se pudo trazar una ruta que "
+                "evite el centro histórico ese día. Elige otro vehículo o reprograma la entrega."
+            ),
+        )
     asignacion = Asignacion(
         orden_id=primary.id, conductor_id=payload.conductor_id,
         vehiculo_placa=payload.vehiculo_placa, estado="Asignada",
@@ -148,9 +175,10 @@ async def create_asignacion(
     conductor.disponibilidad = "Ocupado"
     await db.commit()
 
-    # Construye una única ruta consolidada (recojos + entregas) optimizada.
+    # Construye una única ruta consolidada (recojos + entregas) optimizada; rebordea la
+    # zona de restricción si el plaqueo lo requiere.
     try:
-        await generar_run(db, primary, ordenes, mongo_db=mongo_db)
+        await generar_run(db, primary, ordenes, mongo_db=mongo_db, evitar_zonas=evitar_zonas)
     except Exception as exc:  # noqa: BLE001 - la ruta es best-effort
         import logging
         logging.getLogger(__name__).warning("No se pudo generar la ruta del run %s: %s", asignacion.id, exc)
@@ -213,6 +241,9 @@ async def sugerir_conductor(
     lon_o = float(primary.lon_origen) if primary.lon_origen is not None else None
     lat_o = float(primary.lat_origen) if primary.lat_origen is not None else None
 
+    # Fechas de entrega cuya ruta cruza la zona de restricción (para evaluar plaqueo por placa).
+    fechas_cruce = await plaqueo_service.fechas_con_cruce(db, mongo_db, ordenes)
+
     sugerencias: list[SugerenciaConductor] = []
     for cond, veh in rows:
         dist_km = None
@@ -230,6 +261,7 @@ async def sugerir_conductor(
         ).one()
         cap = float(veh.capacidad_kg) if veh.capacidad_kg is not None else None
         suficiente = cap is None or peso_total == 0 or cap >= peso_total
+        restringido = any(plaqueo_service.placa_restringida(cond.vehiculo_placa, f) for f in fechas_cruce)
         sugerencias.append(
             SugerenciaConductor(
                 conductor_id=cond.id,
@@ -241,11 +273,12 @@ async def sugerir_conductor(
                 capacidad_kg=cap,
                 peso_requerido_kg=peso_total,
                 suficiente=suficiente,
+                restringido_plaqueo=restringido,
             )
         )
 
-    # Capacidad suficiente primero; luego más cercano; los sin posición al final; mejor rating.
-    sugerencias.sort(key=lambda s: (not s.suficiente, s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
+    # No restringidos y con capacidad primero; luego más cercano; sin posición al final; mejor rating.
+    sugerencias.sort(key=lambda s: (s.restringido_plaqueo, not s.suficiente, s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
     return sugerencias[:limit]
 
 

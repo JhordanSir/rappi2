@@ -115,7 +115,7 @@ export default function AsignacionesPage() {
   );
 }
 
-type Sugerencia = { conductor_id: number; nombre: string; vehiculo_placa: string | null; distancia_km: number | null; rating: number | null; total_calificaciones: number; capacidad_kg: number | null; peso_requerido_kg: number; suficiente: boolean };
+type Sugerencia = { conductor_id: number; nombre: string; vehiculo_placa: string | null; distancia_km: number | null; rating: number | null; total_calificaciones: number; capacidad_kg: number | null; peso_requerido_kg: number; suficiente: boolean; restringido_plaqueo: boolean };
 
 function AsignacionForm({ onClose }: { onClose: () => void }) {
   const { data: ordenes } = useOrdenes({ estado: "Pendiente", limit: 200 });
@@ -203,6 +203,7 @@ function AsignacionForm({ onClose }: { onClose: () => void }) {
                       <span className="font-medium text-slate-700">
                         {s.nombre} <span className="font-mono text-xs text-slate-400">{s.vehiculo_placa}</span>
                         {!s.suficiente && <span className="ml-1.5 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-600">capacidad insuficiente</span>}
+                        {s.restringido_plaqueo && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Restringido por plaqueo ese día: la ruta rebordeará el centro histórico, o se bloqueará si el recojo/entrega está dentro.">plaqueo (centro histórico)</span>}
                       </span>
                       <span className="text-xs text-slate-500">
                         {s.capacidad_kg != null && `${s.capacidad_kg} kg · `}
