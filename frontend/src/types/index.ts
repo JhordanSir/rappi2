@@ -155,6 +155,9 @@ export interface Vehiculo {
   placa: string;
   tipo: string;
   capacidad_kg: number;
+  largo_cm?: number | null;
+  ancho_cm?: number | null;
+  alto_cm?: number | null;
   estado: EstadoVehiculo;
   fecha_mantenimiento?: string | null;
   activo: boolean;

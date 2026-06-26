@@ -50,6 +50,7 @@ export default function VehiculosPage() {
             { header: "Placa", cell: (v) => <span className="font-mono font-semibold text-slate-800">{v.placa}</span> },
             { header: "Tipo", cell: (v) => v.tipo },
             { header: "Capacidad", align: "right", cell: (v) => `${formatNumber(v.capacidad_kg)} kg` },
+            { header: "Dimensiones", cell: (v) => (v.largo_cm && v.ancho_cm && v.alto_cm) ? <span className="font-mono text-xs text-slate-500">{`${v.largo_cm}×${v.ancho_cm}×${v.alto_cm} cm`}</span> : <span className="text-slate-300">—</span> },
             { header: "Estado", cell: (v) => <StatusBadge kind="vehiculo" value={v.estado} /> },
             { header: "Activo", cell: (v) => <Badge tone={v.activo ? "green" : "gray"}>{v.activo ? "Sí" : "No"}</Badge> },
             { header: "", align: "right", cell: (v) => writable && (
@@ -82,6 +83,9 @@ function VehiculoForm({ vehiculo, onClose }: { vehiculo: Vehiculo | null; onClos
     placa: vehiculo?.placa ?? "",
     tipo: vehiculo?.tipo ?? "",
     capacidad_kg: vehiculo?.capacidad_kg ? String(vehiculo.capacidad_kg) : "",
+    largo_cm: vehiculo?.largo_cm ? String(vehiculo.largo_cm) : "",
+    ancho_cm: vehiculo?.ancho_cm ? String(vehiculo.ancho_cm) : "",
+    alto_cm: vehiculo?.alto_cm ? String(vehiculo.alto_cm) : "",
     estado: vehiculo?.estado ?? "Operativo",
   });
   const m = useApiMutation(
@@ -92,7 +96,11 @@ function VehiculoForm({ vehiculo, onClose }: { vehiculo: Vehiculo | null; onClos
   const submit = () => {
     if ((!isEdit && !form.placa) || !form.tipo) return toast.error("Placa y tipo son obligatorios");
     if (!isEdit && !/^[A-Z]{3}-\d{3}$/.test(form.placa)) return toast.error("La placa debe tener el formato ABC-123 (3 letras, guion, 3 dígitos)");
-    const body: any = { tipo: form.tipo, capacidad_kg: Number(form.capacidad_kg || 0), estado: form.estado };
+    const dim = (v: string) => (v.trim() === "" ? null : Number(v));
+    const body: any = {
+      tipo: form.tipo, capacidad_kg: Number(form.capacidad_kg || 0), estado: form.estado,
+      largo_cm: dim(form.largo_cm), ancho_cm: dim(form.ancho_cm), alto_cm: dim(form.alto_cm),
+    };
     if (!isEdit) body.placa = form.placa;
     m.mutate(body, { onSuccess: () => { toast.success(isEdit ? "Vehículo actualizado" : "Vehículo creado"); onClose(); }, onError: (e) => toast.error(apiError(e)) });
   };
@@ -115,6 +123,13 @@ function VehiculoForm({ vehiculo, onClose }: { vehiculo: Vehiculo | null; onClos
             </Select>
           </Field>
         </div>
+        <Field label="Dimensiones útiles de carga (cm)" hint="Para validar si el paquete cabe físicamente">
+          <div className="grid grid-cols-3 gap-3">
+            <Input type="number" min="0" step="1" value={form.largo_cm} onChange={(e) => setForm({ ...form, largo_cm: e.target.value })} placeholder="Largo" />
+            <Input type="number" min="0" step="1" value={form.ancho_cm} onChange={(e) => setForm({ ...form, ancho_cm: e.target.value })} placeholder="Ancho" />
+            <Input type="number" min="0" step="1" value={form.alto_cm} onChange={(e) => setForm({ ...form, alto_cm: e.target.value })} placeholder="Alto" />
+          </div>
+        </Field>
       </div>
     </Modal>
   );

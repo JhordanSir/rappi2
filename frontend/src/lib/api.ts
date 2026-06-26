@@ -23,7 +23,10 @@ export const tokenStore = {
   },
 };
 
-export const api = axios.create({ baseURL: API_URL });
+// indexes: null serializa los arrays como claves repetidas (orden_ids=1&orden_ids=2),
+// que es lo que esperan los Query params tipo list[int] de FastAPI (sin esto, axios
+// usa orden_ids[]=… y el backend no los enlaza → p. ej. "Sugerir conductor" fallaba).
+export const api = axios.create({ baseURL: API_URL, paramsSerializer: { indexes: null } });
 
 api.interceptors.request.use((config) => {
   const token = tokenStore.access;

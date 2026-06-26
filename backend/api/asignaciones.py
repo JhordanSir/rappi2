@@ -31,7 +31,6 @@ from schemas.asignaciones import (
     AsignacionResponse,
     AsignacionUpdate,
     EntregaOut,
-    FallarDestinoRequest,
     FinalizarAsignacionRequest,
     SugerenciaConductor,
 )
@@ -57,6 +56,15 @@ def _asg_en_alcance(scope: UserScope, asignacion: Asignacion) -> bool:
     if scope.conductor_id is not None:
         return asignacion.conductor_id == scope.conductor_id
     return False
+
+
+def _dims_caben(paquete, caja) -> bool:
+    """¿El paquete (l, a, h) cabe en la caja útil del vehículo (l, a, h)? Compara las
+    dimensiones ORDENADAS (permite rotar el paquete). Si falta cualquier dimensión del
+    paquete o del vehículo, se asume que cabe (no bloquea por dato faltante)."""
+    if any(x is None for x in paquete) or any(x is None for x in caja):
+        return True
+    return all(float(p) <= float(c) for p, c in zip(sorted(paquete), sorted(caja)))
 
 
 async def _avisar_estado_orden(db: AsyncSession, orden: Orden | None) -> None:
@@ -260,6 +268,9 @@ async def sugerir_conductor(
         ).one()
         cap = float(veh.capacidad_kg) if veh.capacidad_kg is not None else None
         suficiente = cap is None or peso_total == 0 or cap >= peso_total
+        # Cubicaje: todos los paquetes deben caber en las dimensiones del vehículo.
+        caja = (veh.largo_cm, veh.ancho_cm, veh.alto_cm)
+        cabe = all(_dims_caben((d.largo_cm, d.ancho_cm, d.alto_cm), caja) for d in destinos)
         restringido = any(plaqueo_service.placa_restringida(cond.vehiculo_placa, f) for f in fechas_cruce)
         sugerencias.append(
             SugerenciaConductor(
@@ -272,12 +283,13 @@ async def sugerir_conductor(
                 capacidad_kg=cap,
                 peso_requerido_kg=peso_total,
                 suficiente=suficiente,
+                cabe=cabe,
                 restringido_plaqueo=restringido,
             )
         )
 
-    # No restringidos y con capacidad primero; luego más cercano; sin posición al final; mejor rating.
-    sugerencias.sort(key=lambda s: (s.restringido_plaqueo, not s.suficiente, s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
+    # No restringidos, que quepan y con capacidad primero; luego más cercano; sin posición al final; mejor rating.
+    sugerencias.sort(key=lambda s: (s.restringido_plaqueo, not s.cabe, not s.suficiente, s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
     return sugerencias[:limit]
 
 
@@ -417,9 +429,10 @@ async def reabrir_asignacion(
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
-    """Reapertura liviana de un run cerrado por error: vuelve la asignación a 'EnCurso',
-    sus órdenes a 'En Tránsito' y ocupa de nuevo al conductor. Conserva los destinos,
-    paradas y la evidencia ya registrados (no borra el trabajo hecho)."""
+    """Reapertura de un run cerrado por error: vuelve la asignación a 'EnCurso', sus órdenes
+    a 'En Tránsito' y ocupa de nuevo al conductor. Los destinos NO entregados ('Fallida') se
+    reabren a 'Pendiente' para poder reintentar la entrega; los 'Entregado' (y su evidencia)
+    se conservan."""
     _solo_staff(scope)
     asignacion = await _asg_full(db, asignacion_id)
     if asignacion is None:
@@ -429,6 +442,19 @@ async def reabrir_asignacion(
 
     asignacion.estado = "EnCurso"
     asignacion.fecha_fin = None
+    # Reabrir los destinos fallidos para permitir el reintento de entrega.
+    destinos = (
+        await db.execute(select(Destino).where(Destino.orden_id.in_([o.id for o in asignacion.ordenes])))
+    ).scalars().all()
+    for d in destinos:
+        if d.estado == "Fallida":
+            d.estado = "Pendiente"
+            d.nota = None
+            d.fecha_entrega = None
+            parada = (await db.execute(select(Parada).where(Parada.destino_id == d.id))).scalars().first()
+            if parada is not None:
+                parada.estado = "Pendiente"
+                parada.fecha_paso = None
     cambiadas: list[Orden] = []
     for orden in asignacion.ordenes:
         if orden.estado in ("Entregado", "Cancelado"):
@@ -504,23 +530,36 @@ async def entregar_destino(
 async def fallar_destino(
     asignacion_id: int,
     destino_id: int,
-    payload: FallarDestinoRequest,
+    motivo: str = Form(...),
+    lat: float | None = Form(None),
+    lon: float | None = Form(None),
+    archivos: list[UploadFile] = File(..., description="Evidencia obligatoria de la no entrega (foto de puerta cerrada, etc.)"),
     db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    current_user: Usuario = Depends(get_current_user),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
-    """Marca un destino como NO entregado (cliente ausente, dirección incorrecta…) con
-    motivo. Crea una incidencia y cierra la orden/run cuando ya no quedan destinos pendientes."""
-    if not payload.motivo.strip():
+    """Marca un destino como NO entregado (cliente ausente, dirección incorrecta…) con motivo
+    y EVIDENCIA obligatoria. Crea una incidencia con la prueba y cierra la orden/run cuando ya
+    no quedan destinos pendientes."""
+    if not motivo.strip():
         raise HTTPException(status_code=400, detail="Indica el motivo de la no entrega")
     asignacion, destino = await _validar_destino_en_curso(db, asignacion_id, destino_id, scope)
+    # Guarda la prueba visual de la no entrega (misma colección/GridFS que las entregas).
+    await entregas_service.crear_con_archivos(
+        mongo_db, asignacion_id=asignacion_id, archivos=archivos, tipo="foto",
+        descripcion=f"No entrega destino #{destino_id}: {motivo.strip()}", lat=lat, lon=lon,
+        receptor=None, uploaded_by=current_user.id, destino_id=destino_id,
+    )
     ahora = datetime.now(timezone.utc)
     destino.estado = "Fallida"
-    destino.nota = payload.motivo.strip()
+    destino.nota = motivo.strip()
+    destino.entrega_lat, destino.entrega_lon = lat, lon
     destino.fecha_entrega = ahora
     await _marcar_parada(db, destino_id, ahora, "Omitida")
     db.add(Incidencia(asignacion_id=asignacion_id, tipo="Entrega fallida", severidad=3,
-                      origen="chofer", notas=payload.motivo.strip()))
+                      origen="chofer", notas=motivo.strip()))
     cambiadas = await _cerrar_completados(db, asignacion, ahora)
     await db.commit()
     for orden in cambiadas:

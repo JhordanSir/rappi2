@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
+import { reverseGeocode } from "@/lib/geo";
 import { useOrden, useSeguimiento, usePings, useApiMutation } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import { PageLoader } from "@/components/ui/Feedback";
@@ -344,12 +345,19 @@ function AddDestinoModal({ ordenId, onClose, onDone }: { ordenId: number; onClos
   const [nombre, setNombre] = useState("");
   const [punto, setPunto] = useState<LatLng | null>(null);
   const [peso, setPeso] = useState("");
+  const [largo, setLargo] = useState("");
+  const [ancho, setAncho] = useState("");
+  const [alto, setAlto] = useState("");
   const m = useApiMutation((body: any) => api.post(`/ordenes/${ordenId}/destinos`, body), []);
+  const num = (v: string) => (v.trim() === "" ? null : Number(v));
   const submit = () => {
     if (!direccion) return toast.error("Indica la dirección del destino");
     if (!punto) return toast.error("Fija el punto en el mapa");
     m.mutate(
-      { direccion, nombre_destinatario: nombre || null, lat: punto[0], lon: punto[1], peso_kg: peso ? Number(peso) : null },
+      {
+        direccion, nombre_destinatario: nombre || null, lat: punto[0], lon: punto[1],
+        peso_kg: num(peso), largo_cm: num(largo), ancho_cm: num(ancho), alto_cm: num(alto),
+      },
       { onSuccess: () => { toast.success("Destino agregado"); onDone(); onClose(); }, onError: (e) => toast.error(apiError(e)) },
     );
   };
@@ -361,8 +369,19 @@ function AddDestinoModal({ ordenId, onClose, onDone }: { ordenId: number; onClos
           <Field label="Dirección" required><Input value={direccion} onChange={(e) => setDireccion(e.target.value)} /></Field>
           <Field label="Destinatario"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
         </div>
-        <Field label="Peso (kg)"><Input type="number" value={peso} onChange={(e) => setPeso(e.target.value)} className="w-32" /></Field>
-        <LocationPicker value={punto} onChange={setPunto} height={220} color="#f43f5e" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field label="Peso (kg)"><Input type="number" min="0" step="0.1" value={peso} onChange={(e) => setPeso(e.target.value)} placeholder="0" /></Field>
+          <Field label="Largo (cm)"><Input type="number" min="0" step="1" value={largo} onChange={(e) => setLargo(e.target.value)} placeholder="0" /></Field>
+          <Field label="Ancho (cm)"><Input type="number" min="0" step="1" value={ancho} onChange={(e) => setAncho(e.target.value)} placeholder="0" /></Field>
+          <Field label="Alto (cm)"><Input type="number" min="0" step="1" value={alto} onChange={(e) => setAlto(e.target.value)} placeholder="0" /></Field>
+        </div>
+        <LocationPicker
+          value={punto}
+          onChange={async (p) => { setPunto(p); if (p) { const dir = await reverseGeocode(p[0], p[1]); if (dir) setDireccion(dir); } }}
+          height={220}
+          color="#f43f5e"
+        />
+        <p className="text-xs text-slate-400">Toca el mapa para fijar el punto (la dirección se completa sola).</p>
       </div>
     </Modal>
   );

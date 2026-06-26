@@ -22,6 +22,7 @@ export default function AsignacionDetalle() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  const fallarFileRef = useRef<HTMLInputElement>(null);
 
   const { data: asg, isLoading } = useQuery({
     queryKey: ["asignacion", asignacionId],
@@ -98,16 +99,33 @@ export default function AsignacionDetalle() {
     } else done(last?.lat ?? null, last?.lon ?? null);
   };
 
-  const fallarDestino = async (destinoId: number) => {
+  // No entrega: motivo + foto OBLIGATORIA (queda registrada como incidencia con evidencia).
+  const fallarDestino = async (destinoId: number, file: File) => {
     if (!motivoFallo.trim()) return toast.error("Indica el motivo de la no entrega");
     setBusy(true);
-    try {
-      await api.post(`/asignaciones/${asignacionId}/destinos/${destinoId}/fallar`, { motivo: motivoFallo.trim() });
-      toast.success("Destino marcado como no entregado");
-      setFallando(null);
-      setMotivoFallo("");
-      refresh();
-    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+    const done = async (lat: number | null, lon: number | null) => {
+      try {
+        const fd = new FormData();
+        fd.append("motivo", motivoFallo.trim());
+        if (lat != null) fd.append("lat", String(lat));
+        if (lon != null) fd.append("lon", String(lon));
+        fd.append("archivos", file);
+        await api.post(`/asignaciones/${asignacionId}/destinos/${destinoId}/fallar`, fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        toast.success("No entrega registrada con evidencia");
+        setFallando(null);
+        setMotivoFallo("");
+        refresh();
+      } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+    };
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => done(p.coords.latitude, p.coords.longitude),
+        () => done(last?.lat ?? null, last?.lon ?? null),
+        { enableHighAccuracy: true, timeout: 8000 },
+      );
+    } else done(last?.lat ?? null, last?.lon ?? null);
   };
 
   const reportarIncidencia = async () => {
@@ -228,9 +246,14 @@ export default function AsignacionDetalle() {
                     <Field label={<span className="text-stone-200">Motivo de la no entrega</span>} required>
                       <Input value={motivoFallo} onChange={(e) => setMotivoFallo(e.target.value)} placeholder="Cliente ausente, dirección incorrecta…" />
                     </Field>
+                    <p className="text-xs text-stone-400">Se registra como incidencia con evidencia: toma una foto de respaldo (ej. puerta cerrada).</p>
+                    <input ref={fallarFileRef} type="file" accept="image/*" capture="environment" hidden aria-label="Foto de evidencia de no entrega"
+                      onChange={(e) => e.target.files?.[0] && fallarDestino(p.destino_id!, e.target.files[0])} />
                     <div className="flex gap-2">
                       <Button variant="outline" className="flex-1" onClick={() => setFallando(null)}>Cancelar</Button>
-                      <Button variant="danger" className="flex-1" loading={busy} onClick={() => fallarDestino(p.destino_id!)}>Confirmar no entrega</Button>
+                      <Button variant="danger" className="flex-1" loading={busy} onClick={() => { if (!motivoFallo.trim()) return toast.error("Indica el motivo de la no entrega"); fallarFileRef.current?.click(); }}>
+                        <Camera className="h-4 w-4" /> Foto y confirmar
+                      </Button>
                     </div>
                   </div>
                 )}

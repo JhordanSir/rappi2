@@ -63,6 +63,7 @@ class SugerenciaConductor(BaseModel):
     capacidad_kg: Optional[float] = None
     peso_requerido_kg: float = 0
     suficiente: bool = True
+    cabe: bool = True  # cubicaje: todos los paquetes caben en las dimensiones del vehículo
     restringido_plaqueo: bool = False
 
 

@@ -15,6 +15,9 @@ class VehiculoBase(BaseModel):
     placa: str
     tipo: str
     capacidad_kg: Decimal
+    largo_cm: Optional[Decimal] = None
+    ancho_cm: Optional[Decimal] = None
+    alto_cm: Optional[Decimal] = None
     estado: EstadoVehiculo = "Operativo"
     fecha_mantenimiento: Optional[datetime] = None
 
@@ -34,6 +37,9 @@ class VehiculoCreate(VehiculoBase):
 class VehiculoUpdate(BaseModel):
     tipo: Optional[str] = None
     capacidad_kg: Optional[Decimal] = None
+    largo_cm: Optional[Decimal] = None
+    ancho_cm: Optional[Decimal] = None
+    alto_cm: Optional[Decimal] = None
     estado: Optional[EstadoVehiculo] = None
     fecha_mantenimiento: Optional[datetime] = None
     activo: Optional[bool] = None
