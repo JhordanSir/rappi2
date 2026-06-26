@@ -62,6 +62,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - default
+      - dokploy-network
     restart: unless-stopped
 
   frontend:
@@ -74,7 +77,14 @@ services:
       - "5173:80"
     depends_on:
       - api
+    networks:
+      - default
+      - dokploy-network
     restart: unless-stopped
+
+networks:
+  dokploy-network:
+    external: true
 
 volumes:
   postgres_data:
