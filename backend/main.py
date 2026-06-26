@@ -20,7 +20,6 @@ from api import (
     reportes,
     roles,
     rutas,
-    sesiones,
     tarifa,
     tracking,
     usuarios,
@@ -68,7 +67,6 @@ PREFIX = "/api"
 app.include_router(auth.router, prefix=PREFIX)
 app.include_router(roles.router, prefix=PREFIX)
 app.include_router(usuarios.router, prefix=PREFIX)
-app.include_router(sesiones.router, prefix=PREFIX)
 app.include_router(clientes.router, prefix=PREFIX)
 app.include_router(ordenes.router, prefix=PREFIX)
 app.include_router(pagos.router, prefix=PREFIX)

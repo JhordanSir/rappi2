@@ -1,0 +1,97 @@
+{
+  "realm": "rappi2",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      { "name": "Admin", "description": "Acceso total al panel administrativo de Rappi2" },
+      { "name": "Conductor", "description": "Conductor: sus asignaciones, rutas y tracking" },
+      { "name": "Cliente", "description": "Cliente autoservicio: sus pedidos, pagos y seguimiento" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "rappi2-frontend",
+      "name": "Rappi2 Frontend (SPA)",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "http://localhost:5173",
+      "baseUrl": "http://localhost:5173",
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "rappi2-backend-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "rappi2-backend",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Administrador",
+      "lastName": "Rappi2",
+      "email": "admin@rappi2.com",
+      "credentials": [
+        { "type": "password", "value": "admin123", "temporary": false }
+      ],
+      "realmRoles": ["Admin"]
+    },
+    {
+      "username": "cliente1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Cliente",
+      "lastName": "Demo",
+      "email": "cliente1@rappi2.com",
+      "credentials": [
+        { "type": "password", "value": "cliente123", "temporary": false }
+      ],
+      "realmRoles": ["Cliente"]
+    },
+    {
+      "username": "conductor1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Conductor",
+      "lastName": "Demo",
+      "email": "conductor1@rappi2.com",
+      "credentials": [
+        { "type": "password", "value": "conductor123", "temporary": false }
+      ],
+      "realmRoles": ["Conductor"]
+    }
+  ]
+}

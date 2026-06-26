@@ -41,6 +41,27 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Keycloak: proveedor de identidad (OIDC). Importa el realm `rappi2` al arrancar.
+  # En dev usa el modo `start-dev` (H2 en memoria). Consola: http://localhost:8080
+  # (admin / ${KEYCLOAK_ADMIN_PASSWORD}). Para producción: backend Postgres + KC_HOSTNAME/TLS
+  # (ver docker-compose.prod.yml).
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-rappi2.json:/opt/keycloak/data/import/realm-rappi2.json:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - default
+      - dokploy-network
+    restart: unless-stopped
+
   api:
     build: ./backend
     command: sh -c "alembic upgrade head && python -m scripts.seed_admin && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
@@ -52,10 +73,14 @@ services:
       - MONGO_URL=mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-admin}@mongodb:27017/
       - MONGO_DB=${MONGO_DB:-rappi2_mongo}
       - REDIS_URL=redis://redis:6379/0
-      # Seguridad / sesiones
-      - SECRET_KEY=${SECRET_KEY:-change_me_to_a_random_64_char_string_in_production}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
-      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      # Autenticación (Keycloak OIDC). El backend valida los tokens contra el JWKS
+      # de Keycloak; ya NO emite JWT propios. PUBLIC_URL = lo que ve el navegador (issuer),
+      # INTERNAL_URL = cómo alcanza el backend a Keycloak dentro de la red Docker.
+      - KEYCLOAK_PUBLIC_URL=${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      - KEYCLOAK_INTERNAL_URL=${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-rappi2}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-rappi2-frontend}
+      - KEYCLOAK_AUDIENCE=${KEYCLOAK_AUDIENCE:-rappi2-backend}
       - AUDIT_ENABLED=${AUDIT_ENABLED:-true}
       - CORS_ORIGINS=${CORS_ORIGINS:-["*"]}
       # URLs públicas (webhook de pago + back_urls de retorno)
@@ -71,9 +96,12 @@ services:
       - MP_PUBLIC_KEY=${MP_PUBLIC_KEY:-}
       - MP_WEBHOOK_SECRET=${MP_WEBHOOK_SECRET:-}
       - MONEDA=${MONEDA:-PEN}
-      # Google OAuth
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
-      - GOOGLE_ROLE_MAP=${GOOGLE_ROLE_MAP:-}
+      # Validación de RUC (SUNAT). Sin SUNAT_API_URL solo se valida formato/dígito.
+      - SUNAT_ENABLED=${SUNAT_ENABLED:-true}
+      - SUNAT_API_URL=${SUNAT_API_URL:-}
+      - SUNAT_API_TOKEN=${SUNAT_API_TOKEN:-}
+      - SUNAT_TIMEOUT=${SUNAT_TIMEOUT:-6}
+      - SUNAT_FALLO_ABIERTO=${SUNAT_FALLO_ABIERTO:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,6 +109,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     networks:
       - default
       - dokploy-network
@@ -91,7 +121,9 @@ services:
       context: ./frontend
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
-        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://localhost:8080}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-rappi2}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-rappi2-frontend}
     ports:
       - "5173:80"
     depends_on:

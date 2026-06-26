@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Plus, FileText, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Plus, FileText, ExternalLink, Pencil, Trash2, BadgeCheck, ShieldAlert } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useFacturas, useApiMutation } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
-import type { Factura } from "@/types";
+import type { Factura, RucConsulta } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -86,10 +86,30 @@ function FacturaForm({ factura, onClose }: { factura: Factura | null; onClose: (
     monto: factura ? String(factura.monto) : "",
     url: factura?.url ?? "",
   });
+  const [rucInfo, setRucInfo] = useState<RucConsulta | null>(null);
+  const [rucChecking, setRucChecking] = useState(false);
   const m = useApiMutation(
     (body: any) => (isEdit ? api.patch(`/facturas/${factura!.id}`, body) : api.post(`/ordenes/${form.orden_id}/facturas`, body)),
     ["facturas"],
   );
+
+  // Consulta el RUC contra SUNAT (formato/dígito + estado) antes de emitir.
+  const validarRuc = async () => {
+    const ruc = form.ruc.trim();
+    if (!/^\d{11}$/.test(ruc)) return toast.error("El RUC debe tener exactamente 11 dígitos");
+    setRucChecking(true);
+    setRucInfo(null);
+    try {
+      const { data } = await api.get<RucConsulta>(`/facturas/validar-ruc/${ruc}`);
+      setRucInfo(data);
+      toast.success(data.verificado_sunat ? `RUC activo: ${data.razon_social ?? "—"}` : "RUC con formato válido");
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setRucChecking(false);
+    }
+  };
+
   const submit = () => {
     if (!form.orden_id || !form.monto) return toast.error("Orden y monto son obligatorios");
     if (form.ruc.trim() && !/^\d{11}$/.test(form.ruc.trim())) return toast.error("El RUC debe tener exactamente 11 dígitos");
@@ -105,7 +125,35 @@ function FacturaForm({ factura, onClose }: { factura: Factura | null; onClose: (
           <Field label="Orden ID" required><Input type="number" value={form.orden_id} disabled={isEdit} onChange={(e) => setForm({ ...form, orden_id: e.target.value })} /></Field>
           <Field label="Monto" required><Input type="number" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} /></Field>
         </div>
-        <Field label="RUC" hint="11 dígitos"><Input value={form.ruc} inputMode="numeric" maxLength={11} onChange={(e) => setForm({ ...form, ruc: e.target.value.replace(/\D/g, "") })} placeholder="20123456789" /></Field>
+        <Field label="RUC" hint="11 dígitos · se valida con SUNAT al emitir">
+          <div className="flex items-center gap-2">
+            <Input
+              value={form.ruc}
+              inputMode="numeric"
+              maxLength={11}
+              onChange={(e) => { setForm({ ...form, ruc: e.target.value.replace(/\D/g, "") }); setRucInfo(null); }}
+              placeholder="20123456789"
+            />
+            <Button type="button" variant="outline" loading={rucChecking} disabled={!form.ruc} onClick={validarRuc}>
+              Validar
+            </Button>
+          </div>
+        </Field>
+        {rucInfo && (
+          <div className={`flex items-start gap-2 rounded-lg border p-2.5 text-xs ${rucInfo.verificado_sunat && rucInfo.activo === false ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+            {rucInfo.verificado_sunat && rucInfo.activo === false ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" /> : <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0" />}
+            <div>
+              {rucInfo.verificado_sunat ? (
+                <>
+                  <p className="font-semibold">{rucInfo.razon_social ?? "RUC válido"}</p>
+                  <p>Estado: {rucInfo.estado ?? "—"} · Condición: {rucInfo.condicion ?? "—"}</p>
+                </>
+              ) : (
+                <p>Formato y dígito verificador correctos (sin consulta a SUNAT configurada).</p>
+              )}
+            </div>
+          </div>
+        )}
         <Field label="URL del comprobante"><Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" /></Field>
       </div>
     </Modal>

@@ -6,7 +6,7 @@ identidad del token (nunca de parámetros del cliente), evitando que alguien esc
 canales ajenos."""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from jose import JWTError
+from jose.exceptions import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -14,9 +14,9 @@ from sqlalchemy.orm import selectinload
 from api.dependencies import STAFF_ROLES
 from core.database import get_db
 from core.realtime import event_stream
-from core.security import decode_access_token
 from models.conductores import Conductor
 from models.usuarios import Usuario
+from services.keycloak import validate_token
 
 router = APIRouter(prefix="/realtime", tags=["realtime"])
 
@@ -28,15 +28,18 @@ async def _canales_de(token: str, db: AsyncSession) -> list[str]:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("user_id")
+        claims = await validate_token(token)
     except JWTError:
         raise cred_error
-    if user_id is None:
+    sub = claims.get("sub")
+    if not sub:
         raise cred_error
 
+    # El espejo local ya fue provisionado en el primer /auth/me; aquí solo lo leemos.
     user = (
-        await db.execute(select(Usuario).options(selectinload(Usuario.rol)).where(Usuario.id == user_id))
+        await db.execute(
+            select(Usuario).options(selectinload(Usuario.rol)).where(Usuario.keycloak_sub == sub)
+        )
     ).scalar_one_or_none()
     if user is None or not user.activo:
         raise cred_error

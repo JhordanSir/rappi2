@@ -2,14 +2,13 @@ import hashlib
 import logging
 from typing import Optional, Set
 
-from jose import JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from core.config import settings
 from core.mongo import get_database
-from core.security import decode_access_token
+from services.keycloak import actor_de, validate_token
 from services.mongo import auditoria_service
 
 logger = logging.getLogger(__name__)
@@ -17,15 +16,17 @@ logger = logging.getLogger(__name__)
 RUTAS_EXCLUIDAS: Set[str] = {"/", "/docs", "/redoc", "/openapi.json", "/favicon.ico"}
 
 
-def _extraer_usuario_id(authorization: Optional[str]) -> Optional[int]:
+async def _extraer_actor(authorization: Optional[str]) -> Optional[str]:
+    """Identidad del actor (username de Keycloak) para auditoría; best-effort.
+
+    Valida el Bearer contra Keycloak. Devuelve None si no hay token o es inválido (el
+    control de acceso real lo hace get_current_user en cada endpoint)."""
     if not authorization or not authorization.lower().startswith("bearer "):
         return None
     token = authorization.split(" ", 1)[1].strip()
     try:
-        payload = decode_access_token(token)
-        return payload.get("user_id")
-    except JWTError:
-        return None
+        claims = await validate_token(token)
+        return actor_de(claims)
     except Exception:
         return None
 
@@ -52,7 +53,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
-        usuario_id = _extraer_usuario_id(request.headers.get("authorization"))
+        actor = await _extraer_actor(request.headers.get("authorization"))
         ip = _ip_cliente(request)
         metodo = request.method
 
@@ -70,7 +71,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
             db = get_database()
             await auditoria_service.registrar(
                 db,
-                usuario_id=usuario_id,
+                actor=actor,
                 ruta=path,
                 metodo=metodo,
                 ip=ip,

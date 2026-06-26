@@ -70,7 +70,7 @@ export default function AuditoriaPage() {
             { header: "Método", cell: (l) => <Badge tone="slate">{l.metodo}</Badge> },
             { header: "Ruta", cell: (l) => <span title={l.ruta} className="block max-w-[360px] truncate font-mono text-xs text-stone-600">{l.ruta}</span> },
             { header: "Status", cell: (l) => <Badge tone={statusTone(l.status_code) as any}>{l.status_code}</Badge> },
-            { header: "Usuario", cell: (l) => (l.usuario_id ? `#${l.usuario_id}` : <span className="text-stone-400">anónimo</span>) },
+            { header: "Usuario", cell: (l) => (l.actor ? l.actor : <span className="text-stone-400">anónimo</span>) },
             { header: "IP", cell: (l) => <span className="font-mono text-xs text-stone-500">{l.ip || "—"}</span> },
             { header: "Fecha", cell: (l) => <span className="whitespace-nowrap text-stone-500">{formatDate(l.timestamp)}</span> },
           ]}
@@ -85,7 +85,7 @@ function AuditoriaDetalle({ log, onClose }: { log: Auditoria; onClose: () => voi
   const filas: [string, React.ReactNode][] = [
     ["Método", <Badge tone="slate">{log.metodo}</Badge>],
     ["Status", <Badge tone={statusTone(log.status_code) as any}>{log.status_code}</Badge>],
-    ["Usuario", log.usuario_id ? `#${log.usuario_id}` : "anónimo"],
+    ["Usuario", log.actor ? log.actor : "anónimo"],
     ["IP", log.ip || "—"],
     ["Fecha", formatDate(log.timestamp)],
     ["Hash payload", log.payload_hash || "—"],

@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { Outlet } from "react-router-dom";
 import { LogOut, Package } from "lucide-react";
-import toast from "react-hot-toast";
 import { useAuth } from "@/auth/AuthContext";
 import { NotificationsBell } from "./NotificationsBell";
 import { PageLoader } from "@/components/ui/Feedback";
@@ -26,7 +25,7 @@ export function ClienteLayout() {
           <NotificationsBell />
           <span className="hidden text-sm text-stone-600 sm:block">{user?.username}</span>
           <button
-            onClick={() => logout().then(() => toast.success("Sesión cerrada"))}
+            onClick={() => logout()}
             title="Cerrar sesión"
             className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
           >

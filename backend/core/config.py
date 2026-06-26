@@ -10,10 +10,18 @@ class Settings(BaseSettings):
     MONGO_URL: str
     MONGO_DB: str = "rappi2_mongo"
 
-    SECRET_KEY: str = "supersecretkey_please_change_in_production"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # --- Autenticación: Keycloak (OIDC) ---
+    # El backend ya NO emite ni firma tokens propios: valida los access tokens (RS256)
+    # emitidos por Keycloak contra su JWKS. PUBLIC_URL es la URL que ve el navegador y
+    # con la que se firma el `iss` del token; INTERNAL_URL es cómo alcanza el backend a
+    # Keycloak dentro de la red (Docker) para descargar el JWKS. En dev suelen diferir
+    # (localhost:8080 vs keycloak:8080); en un host único pueden ser iguales.
+    KEYCLOAK_PUBLIC_URL: str = "http://localhost:8080"
+    KEYCLOAK_INTERNAL_URL: str = "http://keycloak:8080"
+    KEYCLOAK_REALM: str = "rappi2"
+    KEYCLOAK_CLIENT_ID: str = "rappi2-frontend"
+    # Audiencia esperada en el token (la añade el mapper del cliente en Keycloak).
+    KEYCLOAK_AUDIENCE: str = "rappi2-backend"
 
     AUDIT_ENABLED: bool = True
 
@@ -39,15 +47,20 @@ class Settings(BaseSettings):
     MP_WEBHOOK_SECRET: str = ""
     MONEDA: str = "PEN"
 
-    # Google OAuth (Sign in with Google). Client ID de tipo "Web application";
-    # es el mismo valor que usa el frontend (VITE_GOOGLE_CLIENT_ID). Si está vacío,
-    # el endpoint /auth/google responde 503 (login con Google deshabilitado).
-    GOOGLE_CLIENT_ID: str = ""
-    # Asignación de rol por email para usuarios que entran con Google. Los emails
-    # NO listados se crean como "Cliente". Formato: "correo:Rol,correo:Rol".
-    # Ej: "jefe@org.com:Admin,chofer@org.com:Conductor". Es una allowlist controlada
-    # por el operador (no por el usuario final).
-    GOOGLE_ROLE_MAP: str = ""
+    # --- Validación de RUC (SUNAT) ---
+    # Antes de registrar/validar una factura con RUC, se valida formato + dígito
+    # verificador y, si hay proveedor configurado, se consulta su estado (ACTIVO/HABIDO).
+    # SUNAT no expone una API pública directa: se usa un proveedor de "consulta RUC"
+    # (p. ej. apis.net.pe, apisperu). Si SUNAT_API_URL está vacío, solo se valida el
+    # formato/dígito verificador (sin consulta externa).
+    SUNAT_ENABLED: bool = True
+    SUNAT_API_URL: str = ""          # admite placeholder {ruc}; si no, se añade ?numero=
+    SUNAT_API_TOKEN: str = ""        # se envía como Bearer si está presente
+    SUNAT_TIMEOUT: float = 6.0
+    # Si el proveedor no responde: True = no bloquear la factura (registra advertencia);
+    # False = rechazar (502). El formato/dígito verificador siempre se exige.
+    SUNAT_FALLO_ABIERTO: bool = True
+
     # Base pública del backend (para notification_url del webhook) y del frontend
     # (para las back_urls de retorno tras pagar).
     PUBLIC_BASE_URL: str = "http://localhost:8000"
@@ -60,23 +73,31 @@ class Settings(BaseSettings):
         return bool(self.MP_ACCESS_TOKEN)
 
     @property
-    def google_enabled(self) -> bool:
-        return bool(self.GOOGLE_CLIENT_ID)
+    def sunat_provider_enabled(self) -> bool:
+        """True si hay un proveedor de consulta RUC configurado (consulta externa)."""
+        return self.SUNAT_ENABLED and bool(self.SUNAT_API_URL)
 
     @property
-    def google_role_map(self) -> dict[str, str]:
-        """Parsea GOOGLE_ROLE_MAP en {email_minúsculas: NombreRol}."""
-        mapping: dict[str, str] = {}
-        for par in self.GOOGLE_ROLE_MAP.split(","):
-            par = par.strip()
-            if not par or ":" not in par:
-                continue
-            email, rol = par.split(":", 1)
-            email = email.strip().lower()
-            rol = rol.strip().capitalize()  # admin->Admin, conductor->Conductor
-            if email and rol:
-                mapping[email] = rol
-        return mapping
+    def keycloak_issuer(self) -> str:
+        """Emisor esperado del token (`iss`), tal como lo firma Keycloak para el navegador."""
+        return f"{self.KEYCLOAK_PUBLIC_URL.rstrip('/')}/realms/{self.KEYCLOAK_REALM}"
+
+    @property
+    def keycloak_jwks_url(self) -> str:
+        """URL del JWKS, alcanzable desde el backend (red interna)."""
+        return (
+            f"{self.KEYCLOAK_INTERNAL_URL.rstrip('/')}"
+            f"/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect/certs"
+        )
+
+    @property
+    def keycloak_authorization_url(self) -> str:
+        """Endpoint de autorización (público) para la integración OAuth de /docs."""
+        return f"{self.keycloak_issuer}/protocol/openid-connect/auth"
+
+    @property
+    def keycloak_token_url(self) -> str:
+        return f"{self.keycloak_issuer}/protocol/openid-connect/token"
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

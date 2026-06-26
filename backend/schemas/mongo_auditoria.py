@@ -6,7 +6,8 @@ from pydantic import BaseModel
 
 class AuditoriaOut(BaseModel):
     id: str
-    usuario_id: Optional[int] = None
+    # Actor = username de Keycloak (preferred_username) o email; None si anónimo.
+    actor: Optional[str] = None
     ruta: str
     metodo: str
     ip: Optional[str] = None

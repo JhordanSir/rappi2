@@ -1,46 +1,25 @@
-"""Crea roles base, permisos comodin para Admin, los permisos base de cada rol
-(Conductor / Cliente) y el usuario admin/admin123.
+"""Siembra los roles base y sus permisos en PostgreSQL.
 
-Es idempotente: solo agrega lo que falte (nunca borra permisos), por lo que es
-seguro ejecutarlo en cada arranque de produccion."""
+Con Keycloak como proveedor de identidad, los USUARIOS y la ASIGNACIÓN de roles viven
+en Keycloak (no se crea aquí ningún usuario/contraseña). Esta tabla `roles` se conserva
+como lookup para el FK `usuarios.rol_id` y `user.rol.nombre`, y la tabla `permisos` se
+siembra desde `core.permisos.ROLE_PERMISOS` (única fuente de verdad) para que `/auth/me`
+las devuelva y el frontend pueda mostrar/ocultar UI con `can()`.
+
+La autorización efectiva del backend deriva del rol del token (core.permisos.tiene_permiso),
+no de una lectura de esta tabla.
+
+Es idempotente: solo agrega lo que falte (nunca borra), seguro en cada arranque.
+"""
 import asyncio
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
 from core.database import AsyncSessionLocal
-from core.security import hash_password
+from core.permisos import ROLE_PERMISOS
 from models.roles import Permiso, Rol
-from models.usuarios import Usuario
 
 ROLES = ["Admin", "Conductor", "Cliente"]
-
-# Permisos base por rol (recurso, accion). La propiedad de fila (ownership) se
-# impone aparte en los endpoints: el cliente solo opera SUS datos, el conductor
-# solo SUS asignaciones. Estos permisos solo habilitan la capacidad.
-BASE_PERMISOS: dict[str, list[tuple[str, str]]] = {
-    "Conductor": [
-        ("tracking", "read"), ("tracking", "write"),
-        ("ordenes", "read"),
-        ("asignaciones", "read"), ("asignaciones", "write"),
-        ("rutas", "read"), ("rutas", "write"),
-        ("incidencias", "read"), ("incidencias", "write"),
-        ("entregas", "read"), ("entregas", "write"),
-        ("conductores", "read"),
-        ("calificaciones", "read"),
-        ("notificaciones", "read"),
-    ],
-    "Cliente": [
-        ("ordenes", "read"), ("ordenes", "write"),
-        ("tracking", "read"),
-        ("pagos", "read"), ("pagos", "write"),
-        ("clientes", "read"), ("clientes", "write"),
-        ("incidencias", "read"), ("incidencias", "write"),
-        ("calificaciones", "read"), ("calificaciones", "write"),
-        ("facturas", "read"),
-        ("notificaciones", "read"),
-    ],
-}
 
 
 async def _ensure_permisos(db, rol: Rol, pares: list[tuple[str, str]]) -> None:
@@ -66,31 +45,12 @@ async def main() -> None:
 
         roles = {r.nombre: r for r in (await db.execute(select(Rol))).scalars().all()}
 
-        # Admin: permiso comodin *:*
-        admin_rol = roles["Admin"]
-        await _ensure_permisos(db, admin_rol, [("*", "*")])
-
-        # Permisos base del resto de roles
-        for nombre, pares in BASE_PERMISOS.items():
+        # Permisos por rol desde la fuente de verdad compartida (core.permisos).
+        for nombre, pares in ROLE_PERMISOS.items():
             if nombre in roles:
                 await _ensure_permisos(db, roles[nombre], pares)
 
-        admin_user = (await db.execute(select(Usuario).where(Usuario.username == "admin"))).scalar_one_or_none()
-        if admin_user is None:
-            db.add(
-                Usuario(
-                    username="admin",
-                    email="admin@rappi2.com",
-                    password_hash=hash_password("admin123"),
-                    rol_id=admin_rol.id,
-                )
-            )
-            try:
-                await db.commit()
-            except IntegrityError:
-                await db.rollback()
-
-        print("Seed completado: roles, permisos base por rol y usuario admin/admin123")
+        print("Seed completado: roles base (Admin/Conductor/Cliente) y sus permisos.")
 
 
 if __name__ == "__main__":

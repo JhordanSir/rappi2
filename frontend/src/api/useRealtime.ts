@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { tokenStore } from "@/lib/api";
+import { getToken } from "@/auth/keycloak";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -20,9 +20,9 @@ export function useRealtime(enabled = true) {
     let retry: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
 
-    const connect = () => {
-      const token = tokenStore.access;
-      if (!token) return;
+    const connect = async () => {
+      const token = await getToken();
+      if (closed || !token) return;
       es = new EventSource(`${API_URL}/realtime/stream?token=${encodeURIComponent(token)}`);
 
       es.onmessage = (ev) => {
@@ -46,11 +46,11 @@ export function useRealtime(enabled = true) {
       es.onerror = () => {
         es?.close();
         es = null;
-        if (!closed) retry = setTimeout(connect, 3000);
+        if (!closed) retry = setTimeout(() => void connect(), 3000);
       };
     };
 
-    connect();
+    void connect();
     return () => {
       closed = true;
       if (retry) clearTimeout(retry);

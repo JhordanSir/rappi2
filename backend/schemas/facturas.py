@@ -50,3 +50,13 @@ class FacturaResponse(FacturaBase):
     fecha: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RucConsultaResponse(BaseModel):
+    """Resultado de validar un RUC (formato/dígito + estado en SUNAT si hay proveedor)."""
+    ruc: str
+    razon_social: Optional[str] = None
+    estado: Optional[str] = None
+    condicion: Optional[str] = None
+    activo: Optional[bool] = None
+    verificado_sunat: bool = False
