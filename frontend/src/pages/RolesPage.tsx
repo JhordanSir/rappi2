@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Shield, X } from "lucide-react";
+import { Plus, Shield, X, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useRoles, useApiMutation } from "@/api/hooks";
@@ -11,16 +11,21 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { PageLoader } from "@/components/ui/Feedback";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmModal } from "@/components/ui/Confirm";
 import { Field, Input } from "@/components/ui/Field";
 
 const RECURSOS = ["ordenes", "asignaciones", "rutas", "tracking", "clientes", "conductores", "vehiculos", "pagos", "facturas", "incidencias", "geocercas", "reportes", "usuarios", "roles", "sesiones", "notificaciones", "auditoria"];
 const ACCIONES = ["read", "write", "delete"];
+// Roles base del RBAC: no se pueden borrar (romperían el sistema de permisos/seed).
+const ROLES_SISTEMA = ["Admin", "Conductor", "Cliente"];
 
 export default function RolesPage() {
   const { can } = useAuth();
   const { data, isLoading } = useRoles();
   const [creating, setCreating] = useState(false);
   const [managing, setManaging] = useState<Rol | null>(null);
+  const [toDelete, setToDelete] = useState<Rol | null>(null);
+  const del = useApiMutation((id: number) => api.delete(`/roles/${id}`), ["roles"]);
   const writable = can("roles", "write");
 
   if (isLoading) return <PageLoader />;
@@ -42,7 +47,12 @@ export default function RolesPage() {
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><Shield className="h-4 w-4" /></div>
                   <p className="font-semibold text-slate-800">{r.nombre}</p>
                 </div>
-                <Badge tone="gray">{r.permisos.length} permisos</Badge>
+                <div className="flex items-center gap-1.5">
+                  <Badge tone="gray">{r.permisos.length} permisos</Badge>
+                  {writable && !ROLES_SISTEMA.includes(r.nombre) && (
+                    <Button size="icon" variant="ghost" className="text-rose-500" title="Eliminar rol" onClick={() => setToDelete(r)}><Trash2 className="h-4 w-4" /></Button>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap gap-1">
                 {r.permisos.slice(0, 8).map((p) => (
@@ -61,6 +71,16 @@ export default function RolesPage() {
 
       {creating && <RolForm onClose={() => setCreating(false)} />}
       {fresh && <PermisosModal rol={fresh} onClose={() => setManaging(null)} />}
+      <ConfirmModal
+        open={!!toDelete}
+        title="Eliminar rol"
+        description={`¿Eliminar el rol "${toDelete?.nombre}"? Esta acción no se puede deshacer.`}
+        danger
+        confirmLabel="Eliminar"
+        loading={del.isPending}
+        onClose={() => setToDelete(null)}
+        onConfirm={() => toDelete && del.mutate(toDelete.id, { onSuccess: () => { toast.success("Rol eliminado"); setToDelete(null); }, onError: (e) => toast.error(apiError(e)) })}
+      />
     </div>
   );
 }

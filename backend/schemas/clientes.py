@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
 from schemas.common import lat_field, lon_field
 
@@ -47,7 +47,13 @@ class ClienteBase(BaseModel):
 
 
 class ClienteCreate(ClienteBase):
-    pass
+    @field_validator("nombre")
+    @classmethod
+    def _nombre_no_vacio(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("El nombre es obligatorio")
+        return v
 
 
 class ClienteUpdate(BaseModel):

@@ -54,8 +54,9 @@ function FacturaForm({ onClose }: { onClose: () => void }) {
   const m = useApiMutation((body: any) => api.post(`/ordenes/${form.orden_id}/facturas`, body), ["facturas"]);
   const submit = () => {
     if (!form.orden_id || !form.monto) return toast.error("Orden y monto son obligatorios");
+    if (form.ruc.trim() && !/^\d{11}$/.test(form.ruc.trim())) return toast.error("El RUC debe tener exactamente 11 dígitos");
     m.mutate(
-      { ruc: form.ruc || null, monto: Number(form.monto), url: form.url || null },
+      { ruc: form.ruc.trim() || null, monto: Number(form.monto), url: form.url || null },
       { onSuccess: () => { toast.success("Factura creada"); onClose(); }, onError: (e) => toast.error(apiError(e)) },
     );
   };
@@ -66,7 +67,7 @@ function FacturaForm({ onClose }: { onClose: () => void }) {
           <Field label="Orden ID" required><Input type="number" value={form.orden_id} onChange={(e) => setForm({ ...form, orden_id: e.target.value })} /></Field>
           <Field label="Monto" required><Input type="number" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} /></Field>
         </div>
-        <Field label="RUC"><Input value={form.ruc} onChange={(e) => setForm({ ...form, ruc: e.target.value })} placeholder="20123456789" /></Field>
+        <Field label="RUC" hint="11 dígitos"><Input value={form.ruc} inputMode="numeric" maxLength={11} onChange={(e) => setForm({ ...form, ruc: e.target.value.replace(/\D/g, "") })} placeholder="20123456789" /></Field>
         <Field label="URL del comprobante"><Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" /></Field>
       </div>
     </Modal>

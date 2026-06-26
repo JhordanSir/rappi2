@@ -258,8 +258,13 @@ async def update_pago(
     pago = await db.get(Pago, pago_id)
     if pago is None:
         raise HTTPException(status_code=404, detail="Pago no encontrado")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    cambios = payload.model_dump(exclude_unset=True)
+    for k, v in cambios.items():
         setattr(pago, k, v)
+    # Al confirmar el pago (Pagado), sellar la fecha si el staff no la indicó: así el pago
+    # entra en la ventana de "Recaudación 24h" del dashboard (igual que _confirmar_pago).
+    if cambios.get("estado") == "Pagado" and "fecha_pago" not in cambios:
+        pago.fecha_pago = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(pago)
     return pago

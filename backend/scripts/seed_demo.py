@@ -38,6 +38,9 @@ random.seed(2026)
 now = datetime.now(timezone.utc)
 DEMO_DOMAIN = "demo.rappi2.com"
 
+# PDF público y estable para que el botón "Ver" de las facturas demo abra un comprobante real.
+FACTURA_PDF_DEMO = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+
 ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 # Imágenes de evidencia (se alternan en las entregas). La 1ª es liviana; la 2ª, pesada.
 EVID_IMAGES = [("HK-yjwpXcAAmZ5Z.jpeg", "image/jpeg"), ("gopherrappi.png", "image/png")]
@@ -346,7 +349,7 @@ async def main():
             if esc in ("fin", "fin_parcial"):
                 pago_fecha = now - timedelta(hours=random.choice([2, 6, 20, 30, 96, 200]))
                 db.add(Pago(orden_id=o.id, monto=o.total, estado="Pagado", referencia_banco=f"OP-{random.randint(10000,99999)}", fecha_pago=pago_fecha))
-                db.add(Factura(orden_id=o.id, ruc="20456789012", monto=o.total, url="https://comprobantes.demo/factura.pdf", fecha=pago_fecha))
+                db.add(Factura(orden_id=o.id, ruc="20456789012", monto=o.total, url=FACTURA_PDF_DEMO, fecha=pago_fecha))
 
         await db.commit()
 
@@ -467,7 +470,7 @@ async def main():
                     add_evid(asg, destinos, cond.usuario_id, fin)
                 pago_fecha = min(fin + timedelta(minutes=random.randint(2, 90)), now)
                 db.add(Pago(orden_id=o.id, monto=o.total, estado="Pagado", referencia_banco=f"OP-{random.randint(10000,99999)}", metodo="mercadopago", proveedor="mercadopago", fecha_pago=pago_fecha))
-                db.add(Factura(orden_id=o.id, ruc="20456789012", monto=o.total, url="https://comprobantes.demo/factura.pdf", fecha=pago_fecha))
+                db.add(Factura(orden_id=o.id, ruc="20456789012", monto=o.total, url=FACTURA_PDF_DEMO, fecha=pago_fecha))
             else:
                 bulk_activos += 1
                 cond.disponibilidad = "Ocupado"

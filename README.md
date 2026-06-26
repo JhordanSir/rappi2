@@ -1,58 +1,135 @@
 # Rappi2 — Plataforma de Logística (FastAPI + PostgreSQL + MongoDB + React)
 
-Sistema full-stack de logística y tracking de paquetes ambientado en Arequipa.
+> Plataforma full-stack de logística y *delivery* ambientada en **Arequipa, Perú**: el cliente
+> crea y **paga** su envío, lo **rastrea en vivo**, el conductor lo entrega desde una **PWA móvil**
+> y el equipo interno **despacha, asigna y mide** todo desde un panel con KPIs.
+
+<p>
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white">
+  <img alt="MongoDB" src="https://img.shields.io/badge/MongoDB-6-47A248?logo=mongodb&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-pub%2Fsub%20SSE-DC382D?logo=redis&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-18%20%2B%20Vite-61DAFB?logo=react&logoColor=black">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose%20%2F%20Dokploy-2496ED?logo=docker&logoColor=white">
+</p>
+
+## ¿Qué hace? (funciones de un vistazo)
+
+- 🔐 **Auth + RBAC**: JWT (access/refresh con rotación) y **Sign in with Google**; permisos por `(recurso, acción)` con comodín `*`.
+- 🧑‍🤝‍🧑 **4 experiencias por rol** en la misma SPA: **Cliente**, **Conductor (PWA)**, **Despachador** y **Administrador**.
+- 📦 **Ciclo de orden**: crear → **cotizar precio** (server-side) → **pagar (MercadoPago Checkout Pro / modo simulado)** → asignar → entregar (multidestino, entregas parciales, *run* agrupado).
+- 🧭 **Ruteo por calles con OSRM**: geometría, distancia y tiempo reales; geocerca de corredor automática.
+- 📍 **Tracking GPS en tiempo real (SSE + Redis)**: el conductor envía pings, el cliente ve moverse al conductor en vivo; detección de **desvío de ruta**.
+- 🗺️ **Geocercas** (zonas/corredores, `$geoNear`, punto-en-polígono) y **geocoding** inverso/directo.
+- 🧾 **Pagos, facturas y tarifa dinámica** configurable por el admin (base + km + min + peso + recargos por horario).
+- 🛠️ **Incidencias + evidencias** (fotos en GridFS) y **prueba de entrega** (foto/firma).
+- ⭐ **Calificaciones** (cliente → entrega/conductor) que alimentan KPIs y ranking.
+- 🔔 **Notificaciones in-app** (campana + SSE) y **auditoría** HTTP con TTL.
+- 📊 **Reportes/KPIs**: ventas, SLA, tiempos, eficiencia y rating por conductor, top clientes, distribución geográfica, vistas 360°.
+
+## Experiencias por rol
+
+| Rol | Experiencia | Vistas principales |
+|-----|-------------|--------------------|
+| **Cliente** | Portal de autoservicio | Mis pedidos · Nuevo envío (mapa + cotización) · Checkout · Seguimiento en vivo · Calificar |
+| **Conductor** | PWA móvil de entrega | Mis asignaciones · Detalle (ruta/paradas) · Iniciar/Finalizar · GPS · Prueba de entrega |
+| **Despachador** | Panel de operación | Órdenes · Asignación (sugerencia geoNear) · Rutas · Geocercas · Tracking · Flota · Incidencias |
+| **Administrador** | Panel de sistema | Usuarios · Roles/Permisos · Auditoría · Sesiones · Tarifa · Reportes globales |
 
 ## Estructura del repositorio
 
 ```text
 rappi2/
-├── backend/            # API FastAPI (PostgreSQL + MongoDB)
-│   ├── api/            # routers por dominio (auth, ordenes, tracking, ...)
-│   ├── core/           # config, conexión DB/Mongo, seguridad
-│   ├── models/         # modelos SQLAlchemy
-│   ├── schemas/        # DTOs Pydantic
-│   ├── services/       # OpenRouteService + servicios Mongo (tracking, geocercas...)
-│   ├── middleware/     # auditoría HTTP
-│   ├── alembic/        # migraciones
-│   ├── scripts/        # seed_admin / seed_demo
+├── backend/                 # API FastAPI (async) — PostgreSQL + MongoDB + Redis
+│   ├── api/                 # 23 routers por dominio (auth, ordenes, pagos, tracking, realtime, ...)
+│   ├── core/                # config, DB Postgres, Mongo, Redis/SSE, seguridad
+│   ├── models/              # modelos SQLAlchemy (Postgres)
+│   ├── schemas/             # DTOs Pydantic
+│   ├── services/            # pricing (tarifa) · OSRM/ORS · payments/ (MercadoPago) · mongo/ (tracking, geocercas, evidencias, auditoría, notificaciones)
+│   ├── middleware/          # auditoría HTTP → Mongo
+│   ├── alembic/             # migraciones de esquema
+│   ├── scripts/             # seed_admin · seed_demo · seed_if_empty (auto-seed dev)
 │   └── main.py
-├── frontend/           # SPA React + TS + Vite + Tailwind (ver frontend/README.md)
-├── docs/               # diagramas y colección Postman
-└── docker-compose.yml
+├── frontend/                # SPA React 18 + TS + Vite + Tailwind (nginx en prod)
+│   └── src/                 # api/ · auth/ · components/{layout,map,ui} · lib/ · pages/{cliente,conductor,...}
+├── osrm/                    # entrypoint del OSRM auto-hospedado (prod)
+├── docs/                    # diagramas (Postgres/Mongo) y capturas de endpoints
+├── docker-compose.yml       # base (producción-segura)
+├── docker-compose.override.yml  # dev (auto): código en caliente + auto-seed + puertos BD
+├── docker-compose.prod.yml      # prod: OSRM auto-hospedado + workers
+└── .env / .env.example      # configuración ÚNICA (Compose + Dokploy)
 ```
 
 ## Inicio rápido
 
-**Desarrollo** (carga automática de `docker-compose.override.yml`: código en caliente + puertos de BD):
+**Desarrollo** (`docker-compose.override.yml` se carga solo: código en caliente, puertos de BD y **auto-seed**):
 
 ```bash
-docker compose up --build                               # postgres + mongo + api + frontend
-docker compose exec api python -m scripts.seed_demo     # datos demo (Arequipa)
+cp .env.example .env          # 1) configura (ver "Configuración")
+docker compose up --build     # 2) postgres + mongo + redis + api + frontend
 ```
 
-**Producción** (sin bind-mount de código, BD no expuestas, OSRM auto-hospedado, workers):
+En el primer arranque, `scripts.seed_if_empty` **puebla la base con datos demo** de Arequipa
+(clientes, conductores, flota, órdenes en todos los estados, pagos, tracking, geocercas,
+evidencias y calificaciones). Es idempotente: en reinicios **no** borra lo que creaste.
+Para forzar una recarga limpia:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+docker compose exec api python -m scripts.seed_demo
+```
+
+**Producción** (sin bind-mount, BD no expuestas, **OSRM auto-hospedado**, varios workers):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
 
 - Frontend: <http://localhost:5173> · API / Swagger: <http://localhost:8000/docs>
-- Login: **admin / admin123**
+- Logins demo: **admin / admin123** · **cliente1…16 / demo123** · **conductor1…13 / demo123**
 
 Archivos compose: `docker-compose.yml` (base producción-segura) · `docker-compose.override.yml`
-(dev, auto) · `docker-compose.prod.yml` (prod: OSRM + ajustes).
+(dev, auto) · `docker-compose.prod.yml` (prod: OSRM + workers). Diferencia dev↔prod en detalle:
+ver [DEV vs PROD](#desarrollo-vs-producción).
 
-### Rutas por calles
+## Configuración (un único `.env`)
+
+Toda la configuración vive en **un solo `.env` en la raíz** (Compose lo lee para resolver los
+`${...}`, y el backend lo recibe vía `environment:`). Copia `.env.example` → `.env` y ajusta:
+
+| Variable | Para qué |
+|----------|----------|
+| `POSTGRES_*` / `MONGO_*` | Credenciales y nombres de BD (cámbialas en prod). |
+| `SECRET_KEY` | Firma de JWT (genera una: `openssl rand -hex 32`). |
+| `CORS_ORIGINS` | Orígenes permitidos (recórtalo a tu dominio en prod). |
+| `PUBLIC_BASE_URL` / `FRONTEND_BASE_URL` | URLs públicas (webhook de pago y *back_urls*). |
+| `MP_ACCESS_TOKEN` / `MP_PUBLIC_KEY` / `MP_WEBHOOK_SECRET` | MercadoPago (vacío = **modo simulado**). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_ROLE_MAP` | Sign in with Google + allowlist `email:Rol`. |
+| `ORS_API_KEY` | Geocodificación de direcciones (opcional). |
+| `VITE_API_URL` / `VITE_GOOGLE_CLIENT_ID` | *Build-args* del frontend (se hornean en el bundle). |
+| `API_WORKERS` / `OSRM_REGION_URL` | Workers de uvicorn y mapa de OSRM (prod). |
+
+### Despliegue en Dokploy
+
+El stack ya está listo para **Dokploy** (red externa `dokploy-network` + Traefik):
+
+1. Pega el contenido del `.env` en la sección **Environment** del proyecto.
+2. Ajusta dominios: `PUBLIC_BASE_URL`, `FRONTEND_BASE_URL` y `VITE_API_URL`.
+3. Despliega con el comando de prod (OSRM + workers).
+
+> **Single-domain**: el nginx del frontend ya **proxya `/api` → `api:8000`** por la red interna,
+> así que basta exponer el dominio del **frontend**; `/api` llega al backend sin CORS.
+> Los `.dockerignore` excluyen `.env`, por eso los secretos **no** se hornean en las imágenes.
+
+### Rutas por calles (OSRM)
 
 Al crear una orden, su ruta (paradas, distancia, tiempo, geometría por calles y geocerca de
-corredor) se genera **automáticamente** con **OSRM** (no requiere API key) y la geometría se
-**guarda en la BD**, así el mapa la dibuja sin llamar a servicios externos.
+corredor) se genera **automáticamente** con **OSRM** (sin API key) y la geometría se **guarda en
+la BD**, así el mapa la dibuja sin llamar a servicios externos.
 
-- **Dev**: usa el servidor OSRM público (liviano, sin preprocesar nada).
-- **Prod**: el override levanta **OSRM auto-hospedado** y el backend apunta a `http://osrm:5000`
-  (sin dependencias externas). La 1ra vez descarga y preprocesa el mapa (por defecto Perú; varios
-  minutos y GB de RAM; se cachea en el volumen `osrm_data`). Para una región más liviana define
-  `OSRM_REGION_URL` con un `.osm.pbf` de ciudad/país pequeño.
+- **Dev**: servidor OSRM público (liviano).
+- **Prod**: `docker-compose.prod.yml` levanta **OSRM auto-hospedado** (`http://osrm:5000`). La 1ª
+  vez descarga y preprocesa el mapa (Perú por defecto; varios min + GB de RAM; cacheado en el
+  volumen `osrm_data`). Para una región más liviana define `OSRM_REGION_URL` con un `.osm.pbf` menor.
 
 ## Integrantes
 
@@ -233,11 +310,83 @@ Middleware y logging:
 
 ## Descripción breve del sistema
 
-Rappi2 es una API de logística construida con FastAPI para gestionar entregas: clientes,
-órdenes, asignaciones a conductores, planificación de rutas, y funcionalidades transversales
-como tracking GPS, geocercas, notificaciones, auditoría y evidencias multimedia. Está diseñada
-como una solución híbrida: usa PostgreSQL para datos transaccionales y MongoDB para datos
-geoespaciales/logs y contenido no relacional.
+Rappi2 es una plataforma **full-stack** de logística y *delivery*. El **backend FastAPI** (async,
+80+ endpoints) gestiona clientes, órdenes multidestino, pagos, asignaciones, rutas por calles,
+tracking GPS, geocercas, incidencias, evidencias, calificaciones, notificaciones, auditoría y
+reportes. El **frontend React** ofrece **cuatro experiencias por rol** sobre el mismo login.
+Es una arquitectura **híbrida**: PostgreSQL para lo transaccional y MongoDB para lo
+geoespacial/telemetría/binarios, con **Redis** como *backplane* de tiempo real (SSE).
+
+---
+
+## Funcionalidades del sistema (cada función)
+
+### 🧑 Cliente — portal de autoservicio
+- **Registro/login** abierto (siempre nace con rol `Cliente`) y **Sign in with Google**.
+- **Mis pedidos**: lista paginada con estado en vivo (`GET /api/ordenes`).
+- **Nuevo envío**: elige origen/destino en mapa, **cotiza el precio** server-side (`POST /api/ordenes/cotizar`) y crea la orden (`POST /api/ordenes`).
+- **Checkout**: paga por adelantado con **MercadoPago Checkout Pro** (`POST /api/ordenes/{id}/checkout`) o **modo simulado** (`POST /api/pagos/simular/{id}`); páginas de retorno éxito/fallo/pendiente.
+- **Seguimiento en vivo**: ve al conductor moverse por SSE (`GET /api/tracking/orden/{id}` + `GET /api/realtime/stream`), con ETA, paradas y geocerca.
+- **Calificar** la entrega y al conductor (`POST /api/ordenes/{id}/calificacion`).
+- **Direcciones** guardadas y **campana de notificaciones** en tiempo real.
+
+### 🛵 Conductor — PWA móvil
+- **Mis asignaciones / hoy** (`GET /api/asignaciones?mias`) y **detalle** con ruta + paradas en mapa.
+- **Iniciar / Finalizar** la asignación (`PATCH …/iniciar`, `…/finalizar`) → cambia estados de orden y conductor.
+- **Captura GPS en vivo**: envía pings mientras está `EnCurso` (`POST /api/tracking/ping`).
+- **Entrega por destino**: marcar entregado/fallido (`POST …/destinos/{id}/entregar` · `/fallar`) y **prueba de entrega** (foto/firma → GridFS).
+- **Reportar incidencia** con evidencia · marcar **parada visitada** (`PATCH /api/rutas/{id}/paradas/{id}/visitar`).
+
+### 🧭 Despachador — panel de operación
+- **Órdenes** pendientes/pagadas, **asignación híbrida**: sugerencia del conductor disponible más cercano (`GET /api/asignaciones/sugerencia` vía geoNear) y confirmación 1-clic.
+- **Rutas** (planificar/optimizar/secuenciar), **geocercas**, **tracking** de flota y **incidencias**.
+- **Reportes operativos** en tiempo real (`GET /api/reportes/operativo`).
+
+### 🛡️ Administrador — panel de sistema
+- **Usuarios**, **roles y permisos** (RBAC), **auditoría**, **sesiones** activas (revocar).
+- **Tarifa dinámica** editable (`GET/PATCH /api/tarifa`) y **reportes globales** (ventas, SLA, ratings, KPIs).
+
+### 🔁 Funciones transversales
+| Función | Cómo |
+|---------|------|
+| **Auth & RBAC** | JWT access/refresh con rotación + revocación; Google OAuth; permisos `(recurso, acción)` con `*`; *ownership* por fila (cliente/conductor solo ven lo suyo). |
+| **Tarifa & precio** | Precio calculado server-side: `base + km + min + peso volumétrico` × nivel de servicio × recargos (nocturno/pico/finde). |
+| **Pagos** | MercadoPago Checkout Pro (sandbox) con webhook; *fallback* a modo simulado sin llaves. La orden solo es despachable tras pago aprobado. |
+| **Tiempo real** | **SSE + Redis pub/sub** (`GET /api/realtime/stream`): empuja posición, cambios de estado y notificaciones a cliente/despacho entre varios workers. |
+| **Tracking & geocercas** | Pings GPS en Mongo (`$geoNear`, TTL), geocercas `2dsphere`, punto-en-polígono, detección de desvío de corredor. |
+| **Rutas (OSRM)** | Geometría/distancia/tiempo reales por calles, autogeneradas al crear la orden y persistidas. |
+| **Incidencias & evidencias** | CRUD de incidencias + archivos (foto/video) en **GridFS**; prueba de entrega del conductor. |
+| **Calificaciones** | 1–5 + comentario; promedio y ranking por conductor en los reportes. |
+| **Notificaciones** | In-app (campana) en tiempo real, reutilizando la colección `notificaciones`. |
+| **Auditoría** | Middleware que registra cada request HTTP en Mongo con TTL. |
+| **Reportes/KPIs** | Dashboard, ventas (día/mes), SLA, tiempos, eficiencia y rating por conductor, top clientes, distribución geográfica, vistas 360° de orden/cliente/asignación. |
+
+---
+
+## Stack tecnológico
+
+| Capa | Tecnologías | Por qué |
+|------|-------------|---------|
+| **API** | FastAPI · uvicorn[standard] · Pydantic | Async, validación por tipos, OpenAPI; DI para RBAC/ownership. |
+| **Relacional** | PostgreSQL 15 · SQLAlchemy 2.0 async · asyncpg · Alembic | Integridad, FKs, `CHECK` de estados, joins para reportes; migraciones versionadas. |
+| **Documental/Geo** | MongoDB 6 · Motor · GridFS | `$geoNear`/`2dsphere`, telemetría de alto volumen, binarios (evidencias). |
+| **Tiempo real** | Redis 7 (pub/sub) · SSE | *Fan-out* de eventos entre workers de uvicorn. |
+| **Ruteo / geo** | OSRM (auto-hospedado en prod) · OpenRouteService (geocoding) · httpx | Ruteo por calles sin API key; geocodificación opcional. |
+| **Seguridad / pagos** | python-jose (JWT) · passlib[bcrypt] · google-auth · MercadoPago · Pillow | Tokens, hashing, OAuth, checkout, compresión de evidencias. |
+| **Frontend** | React 18 · TypeScript · Vite 5 · TailwindCSS · @tanstack/react-query · axios · react-router-dom · leaflet · recharts | SPA tipada, caché/paginación de datos, layouts por rol, mapas y gráficos. |
+| **Infra** | Docker Compose · nginx · Dokploy | Orquestación multi-servicio, SPA + proxy `/api`, despliegue gestionado. |
+
+> Detalle ampliado de cada elección en la sección [Arquitectura](#arquitectura).
+
+## Desarrollo vs Producción
+
+| | **Dev** (`docker compose up`) | **Prod** (`-f docker-compose.yml -f docker-compose.prod.yml`) |
+|---|---|---|
+| Código | bind-mount `./backend` + `uvicorn --reload` | imagen inmutable (sin mount) |
+| Puertos BD | Postgres `5432` y Mongo `27017` expuestos | no expuestos (solo red interna) |
+| OSRM | servidor público | **auto-hospedado** (`osrm:5000`, mapa de Perú) |
+| Workers | 1 | varios (`API_WORKERS`, por eso Redis/SSE) |
+| Datos | `seed_admin` + **auto-seed demo** | solo `seed_admin` (sin datos demo) |
 
 ---
 
@@ -310,17 +459,20 @@ Arquitectura tipo API monolítica modular:
 - `models/`: modelos SQLAlchemy (PostgreSQL).
 - `schemas/`: esquemas Pydantic (DTOs).
 - `services/`:
-  - Integración externa OpenRouteService (`ors_service.py`).
-  - Servicios Mongo (tracking, geocercas, notificaciones, auditoría, evidencias).
+  - `pricing_service.py`: cálculo de tarifa/precio server-side.
+  - `osrm_service.py` (ruteo por calles) · `ors_service.py` (geocoding).
+  - `payments/`: MercadoPago Checkout Pro.
+  - `mongo/`: tracking, geocercas, evidencias, notificaciones, auditoría.
 - `middleware/`:
-  - Middleware de auditoría (escribe logs a Mongo).
+  - Middleware de auditoría (registra cada request en Mongo, con TTL).
 - `core/`:
   - Config (`config.py`)
   - PostgreSQL async (`database.py`)
   - Mongo (`mongo.py`)
-  - Seguridad (JWT, hashing, etc.)
-- `alembic/`: migraciones.
-- `scripts/`: seed inicial (roles/permisos/admin).
+  - Redis + SSE tiempo real (`realtime.py`)
+  - Seguridad: JWT, hashing, OAuth (`security.py`)
+- `alembic/`: migraciones de esquema.
+- `scripts/`: `seed_admin` (roles/permisos/admin) · `seed_demo` (datos demo) · `seed_if_empty` (auto-seed en dev).
 
 ---
 

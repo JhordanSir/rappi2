@@ -39,6 +39,7 @@ export default function GeocercasPage() {
 
   const crear = useApiMutation((body: any) => api.post("/geocercas", body), ["geocercas"]);
   const del = useApiMutation((id: string) => api.delete(`/geocercas/${id}`), ["geocercas"]);
+  const reactivar = useApiMutation((id: string) => api.patch(`/geocercas/${id}`, { activa: true }), ["geocercas"]);
 
   const allPoints = useMemo(() => (data ?? []).flatMap(ring), [data]);
 
@@ -143,9 +144,11 @@ export default function GeocercasPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <Badge tone={(TIPO_TONE[g.tipo] ?? "gray") as any}>{g.activa ? "activa" : "inactiva"}</Badge>
-                    {writable && g.activa && (
-                      <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(g)}><Trash2 className="h-4 w-4" /></Button>
-                    )}
+                    {writable && (g.activa ? (
+                      <Button size="icon" variant="ghost" className="text-rose-500" title="Desactivar" onClick={() => setToDelete(g)}><Trash2 className="h-4 w-4" /></Button>
+                    ) : (
+                      <Button size="icon" variant="ghost" className="text-emerald-600" title="Reactivar" loading={reactivar.isPending} onClick={() => reactivar.mutate(g.id, { onSuccess: () => toast.success("Geocerca reactivada"), onError: (e) => toast.error(apiError(e)) })}><Undo2 className="h-4 w-4" /></Button>
+                    ))}
                   </div>
                 </div>
               ))}

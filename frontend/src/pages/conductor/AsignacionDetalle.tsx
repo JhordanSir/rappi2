@@ -38,6 +38,7 @@ export default function AsignacionDetalle() {
   const [showInc, setShowInc] = useState(false);
   const [busy, setBusy] = useState(false);
   const [inc, setInc] = useState({ tipo: TIPOS_INCIDENCIA[0], notas: "" });
+  const [incFile, setIncFile] = useState<File | null>(null);
   // Entrega por destino: id del destino en curso + receptor.
   const [entregando, setEntregando] = useState<number | null>(null);
   const [receptor, setReceptor] = useState("");
@@ -112,10 +113,19 @@ export default function AsignacionDetalle() {
   const reportarIncidencia = async () => {
     setBusy(true);
     try {
-      await api.post("/incidencias/", { asignacion_id: asignacionId, tipo: inc.tipo, notas: inc.notas || null });
+      const { data: creada } = await api.post<{ id: number }>("/incidencias/", { asignacion_id: asignacionId, tipo: inc.tipo, notas: inc.notas || null });
+      // Evidencia opcional: si el conductor adjuntó una foto, súbela a la incidencia recién creada.
+      if (incFile && creada?.id) {
+        const fd = new FormData();
+        fd.append("tipo", "foto");
+        if (inc.notas) fd.append("descripcion", inc.notas);
+        fd.append("archivos", incFile);
+        await api.post(`/incidencias/${creada.id}/evidencias/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      }
       toast.success("Incidencia reportada");
       setShowInc(false);
       setInc({ tipo: TIPOS_INCIDENCIA[0], notas: "" });
+      setIncFile(null);
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };
 
@@ -242,6 +252,16 @@ export default function AsignacionDetalle() {
               <Field label={<span className="text-stone-200">Notas</span>}>
                 <Input value={inc.notas} onChange={(e) => setInc({ ...inc, notas: e.target.value })} placeholder="Describe el problema" />
               </Field>
+              <Field label={<span className="text-stone-200">Evidencia (opcional)</span>}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  aria-label="Adjuntar foto de evidencia"
+                  onChange={(e) => setIncFile(e.target.files?.[0] ?? null)}
+                  className="block w-full text-sm text-stone-300 file:mr-3 file:rounded-lg file:border-0 file:bg-stone-700 file:px-3 file:py-1.5 file:text-stone-100 hover:file:bg-stone-600"
+                />
+              </Field>
+              {incFile && <p className="text-xs text-emerald-400">Foto adjunta: {incFile.name}</p>}
               <p className="text-xs text-stone-400">La gravedad la evalúa la central, no el conductor.</p>
               <Button className="w-full" variant="danger" loading={busy} onClick={reportarIncidencia}>Reportar</Button>
             </div>

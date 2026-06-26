@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, MapPin, Flag, Clock, Zap, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
+import { reverseGeocode } from "@/lib/geo";
 import { iniciarCheckout } from "@/api/checkout";
 import { LocationPicker, type LatLng } from "@/components/map/MapView";
 import { COLORS } from "@/components/map/icons";
@@ -45,18 +46,6 @@ export default function NuevoEnvio() {
   const programadoISO = () => (programar && programadoPara ? new Date(programadoPara).toISOString() : null);
   const setDest = (i: number, patch: Partial<DestinoForm>) =>
     setDestinos((ds) => ds.map((d, j) => (j === i ? { ...d, ...patch } : d)));
-
-  // Geocodificacion inversa: al tocar el mapa, autocompleta la direccion (P9).
-  const reverseGeocode = async (p: LatLng): Promise<string | null> => {
-    try {
-      const { data } = await api.get<{ direccion: string | null }>("/geo/reverse", {
-        params: { lat: p[0], lon: p[1] },
-      });
-      return data.direccion;
-    } catch {
-      return null;
-    }
-  };
 
   const destinosPayload = () =>
     destinos
@@ -151,7 +140,7 @@ export default function NuevoEnvio() {
             value={origen}
             onChange={async (p) => {
               setOrigen(p);
-              if (p) { const dir = await reverseGeocode(p); if (dir) setDirOrigen(dir); }
+              if (p) { const dir = await reverseGeocode(p[0], p[1]); if (dir) setDirOrigen(dir); }
             }}
             color={COLORS.origen}
           />
@@ -183,7 +172,7 @@ export default function NuevoEnvio() {
               value={d.punto}
               onChange={async (p) => {
                 setDest(i, { punto: p });
-                if (p) { const dir = await reverseGeocode(p); if (dir) setDest(i, { direccion: dir }); }
+                if (p) { const dir = await reverseGeocode(p[0], p[1]); if (dir) setDest(i, { direccion: dir }); }
               }}
               color={COLORS.destino}
             />

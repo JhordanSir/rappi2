@@ -397,11 +397,46 @@ async def finalizar_asignacion(
                 d.entrega_lat = payload.lat
             if payload and payload.lon is not None:
                 d.entrega_lon = payload.lon
+            # Sincroniza la parada de la ruta planificada (igual que entregar/fallar destino).
+            await _marcar_parada(db, d.id, ahora, "Visitada")
     asignacion.entrega_receptor = receptor
     # Registro de auditoría: incidencia del cierre forzado.
     db.add(Incidencia(asignacion_id=asignacion_id, tipo="Cierre forzado", severidad=2,
                       origen="admin", notas=motivo))
     cambiadas = await _cerrar_completados(db, asignacion, ahora)
+    await db.commit()
+    for orden in cambiadas:
+        await _avisar_estado_orden(db, orden)
+    return await _asg_full(db, asignacion_id)
+
+
+@router.patch("/{asignacion_id}/reabrir", response_model=AsignacionResponse)
+async def reabrir_asignacion(
+    asignacion_id: int,
+    db: AsyncSession = Depends(get_db),
+    scope: UserScope = Depends(get_scope),
+    _: object = Depends(require_permiso("asignaciones", "write")),
+):
+    """Reapertura liviana de un run cerrado por error: vuelve la asignación a 'EnCurso',
+    sus órdenes a 'En Tránsito' y ocupa de nuevo al conductor. Conserva los destinos,
+    paradas y la evidencia ya registrados (no borra el trabajo hecho)."""
+    _solo_staff(scope)
+    asignacion = await _asg_full(db, asignacion_id)
+    if asignacion is None:
+        raise HTTPException(status_code=404, detail="Asignacion no encontrada")
+    if asignacion.estado != "Finalizada":
+        raise HTTPException(status_code=400, detail=f"Solo se reabre una asignacion Finalizada (actual: {asignacion.estado})")
+
+    asignacion.estado = "EnCurso"
+    asignacion.fecha_fin = None
+    cambiadas: list[Orden] = []
+    for orden in asignacion.ordenes:
+        if orden.estado in ("Entregado", "Cancelado"):
+            orden.estado = "En Tránsito"
+            cambiadas.append(orden)
+    conductor = await db.get(Conductor, asignacion.conductor_id)
+    if conductor is not None:
+        conductor.disponibilidad = "Ocupado"
     await db.commit()
     for orden in cambiadas:
         await _avisar_estado_orden(db, orden)

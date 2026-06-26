@@ -133,11 +133,17 @@ function ClienteForm({ cliente, onClose }: { cliente: Cliente | null; onClose: (
     ["clientes"],
   );
 
-  const submit = () =>
-    m.mutate(form, {
-      onSuccess: () => { toast.success(isEdit ? "Cliente actualizado" : "Cliente creado"); onClose(); },
-      onError: (e) => toast.error(apiError(e)),
-    });
+  const submit = () => {
+    if (!form.nombre.trim()) return toast.error("El nombre es obligatorio");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return toast.error("Ingresa un email válido");
+    m.mutate(
+      { ...form, nombre: form.nombre.trim(), email: form.email.trim() },
+      {
+        onSuccess: () => { toast.success(isEdit ? "Cliente actualizado" : "Cliente creado"); onClose(); },
+        onError: (e) => toast.error(apiError(e)),
+      },
+    );
+  };
 
   return (
     <Modal

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Play, CheckCircle2, Trash2, ExternalLink, Camera } from "lucide-react";
+import { Plus, Play, CheckCircle2, Trash2, ExternalLink, Camera, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useAsignaciones, useOrdenes, useConductores, useVehiculos, useApiMutation, usePruebasEntrega } from "@/api/hooks";
@@ -32,6 +32,7 @@ export default function AsignacionesPage() {
 
   const condName = (id: number) => conductores?.find((c) => c.id === id)?.nombre ?? `#${id}`;
   const iniciar = useApiMutation((id: number) => api.patch(`/asignaciones/${id}/iniciar`), ["asignaciones", "ordenes"]);
+  const reabrir = useApiMutation((id: number) => api.patch(`/asignaciones/${id}/reabrir`), ["asignaciones", "ordenes"]);
   const del = useApiMutation((id: number) => api.delete(`/asignaciones/${id}`), ["asignaciones"]);
 
   const rows = useMemo(
@@ -90,6 +91,11 @@ export default function AsignacionesPage() {
                   {writable && a.estado === "EnCurso" && (
                     <Button size="sm" variant="outline" onClick={() => setFinalizing(a)} title="Cierre forzado (excepción)">
                       <CheckCircle2 className="h-3.5 w-3.5" /> Cerrar
+                    </Button>
+                  )}
+                  {writable && a.estado === "Finalizada" && (
+                    <Button size="sm" variant="ghost" title="Reabrir: vuelve a EnCurso (corrige un cierre por error)" onClick={() => reabrir.mutate(a.id, { onSuccess: () => toast.success("Asignación reabierta"), onError: (e) => toast.error(apiError(e)) })}>
+                      <RotateCcw className="h-3.5 w-3.5" /> Reabrir
                     </Button>
                   )}
                   {writable && a.estado !== "EnCurso" && (

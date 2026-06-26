@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Plus, ArrowRight, MapPin, Flag, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
+import { reverseGeocode } from "@/lib/geo";
 import { useApiMutation, useClientes, useDebouncedValue, usePaginated } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { Cotizacion, EstadoOrden, NivelServicio, Orden } from "@/types";
@@ -167,7 +168,7 @@ function OrdenForm({ onClose, clientes, lockedClienteId }: { onClose: () => void
         <div className="rounded-xl border border-slate-200 p-4">
           <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-emerald-600"><MapPin className="h-4 w-4" /> Origen (recojo)</p>
           <Field label="Dirección" required><Input value={dirOrigen} onChange={(e) => setDirOrigen(e.target.value)} /></Field>
-          <div className="mt-3"><LocationPicker value={origen} onChange={setOrigen} height={200} color="#10b981" /></div>
+          <div className="mt-3"><LocationPicker value={origen} onChange={async (p) => { setOrigen(p); if (p) { const dir = await reverseGeocode(p[0], p[1]); if (dir) setDirOrigen(dir); } }} height={200} color="#10b981" /></div>
           <p className="text-center text-xs font-mono text-slate-400">{formatCoord(origen?.[0], origen?.[1])}</p>
         </div>
 
@@ -181,7 +182,7 @@ function OrdenForm({ onClose, clientes, lockedClienteId }: { onClose: () => void
               <Field label="Dirección" required><Input value={d.direccion} onChange={(e) => setDest(i, { direccion: e.target.value })} /></Field>
               <Field label="Destinatario"><Input value={d.nombre} onChange={(e) => setDest(i, { nombre: e.target.value })} /></Field>
             </div>
-            <div className="mt-3"><LocationPicker value={d.punto} onChange={(p) => setDest(i, { punto: p })} height={200} color="#f43f5e" /></div>
+            <div className="mt-3"><LocationPicker value={d.punto} onChange={async (p) => { setDest(i, { punto: p }); if (p) { const dir = await reverseGeocode(p[0], p[1]); if (dir) setDest(i, { direccion: dir }); } }} height={200} color="#f43f5e" /></div>
             <div className="mt-3 grid grid-cols-4 gap-2">
               <Field label="Peso kg"><Input type="number" value={d.peso} onChange={(e) => setDest(i, { peso: e.target.value })} /></Field>
               <Field label="Largo"><Input type="number" value={d.largo} onChange={(e) => setDest(i, { largo: e.target.value })} /></Field>
