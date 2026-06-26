@@ -91,6 +91,7 @@ function VehiculoForm({ vehiculo, onClose }: { vehiculo: Vehiculo | null; onClos
 
   const submit = () => {
     if ((!isEdit && !form.placa) || !form.tipo) return toast.error("Placa y tipo son obligatorios");
+    if (!isEdit && !/^[A-Z]{3}-\d{3}$/.test(form.placa)) return toast.error("La placa debe tener el formato ABC-123 (3 letras, guion, 3 dígitos)");
     const body: any = { tipo: form.tipo, capacidad_kg: Number(form.capacidad_kg || 0), estado: form.estado };
     if (!isEdit) body.placa = form.placa;
     m.mutate(body, { onSuccess: () => { toast.success(isEdit ? "Vehículo actualizado" : "Vehículo creado"); onClose(); }, onError: (e) => toast.error(apiError(e)) });

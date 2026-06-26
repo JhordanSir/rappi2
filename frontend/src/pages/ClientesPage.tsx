@@ -26,7 +26,8 @@ export default function ClientesPage() {
   const [direcciones, setDirecciones] = useState<Cliente | null>(null);
   const [toDelete, setToDelete] = useState<Cliente | null>(null);
 
-  const del = useApiMutation((id: number) => api.delete(`/clientes/${id}`), ["clientes"]);
+  // Desactivar un cliente desactiva en cascada su usuario; refrescamos ambas listas (P6).
+  const del = useApiMutation((id: number) => api.delete(`/clientes/${id}`), ["clientes", "usuarios"]);
 
   const rows = useMemo(() => {
     const q = search.toLowerCase();

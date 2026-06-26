@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, MapPin, Flag, Clock, Zap, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { useAuth } from "@/auth/AuthContext";
 import { api, apiError } from "@/lib/api";
 import { iniciarCheckout } from "@/api/checkout";
 import { LocationPicker, type LatLng } from "@/components/map/MapView";
@@ -31,7 +30,6 @@ const nuevoDestino = (): DestinoForm => ({ direccion: "", punto: null, peso: "",
 
 export default function NuevoEnvio() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [dirOrigen, setDirOrigen] = useState("");
   const [origen, setOrigen] = useState<LatLng | null>(null);
   const [destinos, setDestinos] = useState<DestinoForm[]>([nuevoDestino()]);
@@ -47,6 +45,18 @@ export default function NuevoEnvio() {
   const programadoISO = () => (programar && programadoPara ? new Date(programadoPara).toISOString() : null);
   const setDest = (i: number, patch: Partial<DestinoForm>) =>
     setDestinos((ds) => ds.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+
+  // Geocodificacion inversa: al tocar el mapa, autocompleta la direccion (P9).
+  const reverseGeocode = async (p: LatLng): Promise<string | null> => {
+    try {
+      const { data } = await api.get<{ direccion: string | null }>("/geo/reverse", {
+        params: { lat: p[0], lon: p[1] },
+      });
+      return data.direccion;
+    } catch {
+      return null;
+    }
+  };
 
   const destinosPayload = () =>
     destinos
@@ -101,8 +111,9 @@ export default function NuevoEnvio() {
     if (programar && !programadoPara) return toast.error("Indica la fecha y hora de programación");
     setLoading(true);
     try {
+      // El backend fuerza el cliente_id del token para usuarios con rol Cliente;
+      // no enviamos 0 (provocaba "cliente_id invalido o inactivo").
       const { data } = await api.post<Orden>("/ordenes/", {
-        cliente_id: user?.cliente_id ?? 0,
         direccion_origen: dirOrigen,
         lat_origen: origen[0],
         lon_origen: origen[1],
@@ -136,8 +147,15 @@ export default function NuevoEnvio() {
           <Field label="Dirección" required>
             <Input value={dirOrigen} onChange={(e) => setDirOrigen(e.target.value)} placeholder="Av. ejemplo 123, distrito" />
           </Field>
-          <LocationPicker value={origen} onChange={setOrigen} color={COLORS.origen} />
-          <p className="text-xs text-stone-400">Toca el mapa para fijar el punto de recojo.</p>
+          <LocationPicker
+            value={origen}
+            onChange={async (p) => {
+              setOrigen(p);
+              if (p) { const dir = await reverseGeocode(p); if (dir) setDirOrigen(dir); }
+            }}
+            color={COLORS.origen}
+          />
+          <p className="text-xs text-stone-400">Toca el mapa para fijar el punto de recojo (la dirección se completa sola).</p>
         </div>
 
         {/* Destinos */}
@@ -161,7 +179,14 @@ export default function NuevoEnvio() {
                 <Input value={d.nombre} onChange={(e) => setDest(i, { nombre: e.target.value })} placeholder="Nombre de quien recibe" />
               </Field>
             </div>
-            <LocationPicker value={d.punto} onChange={(p) => setDest(i, { punto: p })} color={COLORS.destino} />
+            <LocationPicker
+              value={d.punto}
+              onChange={async (p) => {
+                setDest(i, { punto: p });
+                if (p) { const dir = await reverseGeocode(p); if (dir) setDest(i, { direccion: dir }); }
+              }}
+              color={COLORS.destino}
+            />
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field label="Peso (kg)"><Input type="number" min="0" step="0.1" value={d.peso} onChange={(e) => setDest(i, { peso: e.target.value })} placeholder="0" /></Field>
               <Field label="Largo (cm)"><Input type="number" min="0" step="1" value={d.largo} onChange={(e) => setDest(i, { largo: e.target.value })} placeholder="0" /></Field>

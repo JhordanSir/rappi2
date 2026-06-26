@@ -157,4 +157,8 @@ async def delete_conductor(
         raise HTTPException(status_code=404, detail="Conductor no encontrado")
     conductor.activo = False
     conductor.disponibilidad = "Inactivo"
+    # Cascada (P6): desactivar el usuario vinculado para que no pueda iniciar sesion.
+    usuario = await db.get(Usuario, conductor.usuario_id)
+    if usuario is not None:
+        usuario.activo = False
     await db.commit()

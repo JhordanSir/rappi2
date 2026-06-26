@@ -6,6 +6,7 @@ import type {
   Auditoria,
   Cliente,
   Conductor,
+  EntregaEvidencia,
   Evidencia,
   Factura,
   Geocerca,
@@ -85,6 +86,13 @@ export const useVehiculos = (params?: Params) =>
 // ---------------- Asignaciones ----------------
 export const useAsignaciones = (params?: Params) =>
   useQuery({ queryKey: ["asignaciones", params], queryFn: () => get<Asignacion[]>("/asignaciones/", params) });
+/** Pruebas de entrega (fotos/firmas en GridFS) de una asignación — para auditoría del admin. */
+export const usePruebasEntrega = (asignacionId?: number) =>
+  useQuery({
+    queryKey: ["pruebas-entrega", asignacionId],
+    queryFn: () => get<EntregaEvidencia[]>(`/asignaciones/${asignacionId}/prueba-entrega`),
+    enabled: !!asignacionId,
+  });
 
 // ---------------- Rutas ----------------
 export const useRutas = (params?: Params) =>

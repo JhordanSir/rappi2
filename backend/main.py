@@ -11,6 +11,7 @@ from api import (
     clientes,
     conductores,
     facturas,
+    geo,
     incidencias,
     notificaciones,
     ordenes,
@@ -84,6 +85,7 @@ app.include_router(auditoria.router, prefix=PREFIX)
 app.include_router(reportes.router, prefix=PREFIX)
 app.include_router(calificaciones.router, prefix=PREFIX)
 app.include_router(realtime.router, prefix=PREFIX)
+app.include_router(geo.router, prefix=PREFIX)
 
 
 @app.get("/", tags=["root"])

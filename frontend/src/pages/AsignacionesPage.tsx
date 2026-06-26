@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Play, CheckCircle2, Trash2, ExternalLink } from "lucide-react";
+import { Plus, Play, CheckCircle2, Trash2, ExternalLink, Camera } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useAsignaciones, useOrdenes, useConductores, useVehiculos, useApiMutation } from "@/api/hooks";
+import { useAsignaciones, useOrdenes, useConductores, useVehiculos, useApiMutation, usePruebasEntrega } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { Asignacion } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -23,6 +23,7 @@ export default function AsignacionesPage() {
   const [creating, setCreating] = useState(false);
   const [finalizing, setFinalizing] = useState<Asignacion | null>(null);
   const [toDelete, setToDelete] = useState<Asignacion | null>(null);
+  const [viewing, setViewing] = useState<Asignacion | null>(null);
   const [search, setSearch] = useState("");
 
   const { data, isLoading } = useAsignaciones({ limit: 200 });
@@ -74,26 +75,30 @@ export default function AsignacionesPage() {
             {
               header: "",
               align: "right",
-              cell: (a) =>
-                writable && (
-                  <div className="flex justify-end gap-1">
-                    {a.estado === "Asignada" && (
-                      <Button size="sm" variant="secondary" onClick={() => iniciar.mutate(a.id, { onSuccess: () => toast.success("Asignación iniciada"), onError: (e) => toast.error(apiError(e)) })}>
-                        <Play className="h-3.5 w-3.5" /> Iniciar
-                      </Button>
-                    )}
-                    {a.estado === "EnCurso" && (
-                      <Button size="sm" variant="outline" onClick={() => setFinalizing(a)} title="Cierre forzado (excepción)">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Cerrar
-                      </Button>
-                    )}
-                    {a.estado !== "EnCurso" && (
-                      <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(a)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                ),
+              cell: (a) => (
+                <div className="flex justify-end gap-1">
+                  {(a.estado === "EnCurso" || a.estado === "Finalizada") && (
+                    <Button size="sm" variant="ghost" onClick={() => setViewing(a)} title="Ver evidencia de entrega">
+                      <Camera className="h-3.5 w-3.5" /> Evidencia
+                    </Button>
+                  )}
+                  {writable && a.estado === "Asignada" && (
+                    <Button size="sm" variant="secondary" onClick={() => iniciar.mutate(a.id, { onSuccess: () => toast.success("Asignación iniciada"), onError: (e) => toast.error(apiError(e)) })}>
+                      <Play className="h-3.5 w-3.5" /> Iniciar
+                    </Button>
+                  )}
+                  {writable && a.estado === "EnCurso" && (
+                    <Button size="sm" variant="outline" onClick={() => setFinalizing(a)} title="Cierre forzado (excepción)">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Cerrar
+                    </Button>
+                  )}
+                  {writable && a.estado !== "EnCurso" && (
+                    <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(a)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ),
             },
           ]}
         />
@@ -101,6 +106,7 @@ export default function AsignacionesPage() {
 
       {creating && <AsignacionForm onClose={() => setCreating(false)} />}
       {finalizing && <FinalizarModal asignacion={finalizing} onClose={() => setFinalizing(null)} />}
+      {viewing && <EvidenciaModal asignacion={viewing} onClose={() => setViewing(null)} />}
       <ConfirmModal
         open={!!toDelete}
         title="Eliminar asignación"
@@ -231,6 +237,58 @@ function AsignacionForm({ onClose }: { onClose: () => void }) {
           </Select>
         </Field>
       </div>
+    </Modal>
+  );
+}
+
+function EvidenciaModal({ asignacion, onClose }: { asignacion: Asignacion; onClose: () => void }) {
+  const { data: entregas, isLoading } = usePruebasEntrega(asignacion.id);
+  const abrir = async (fileId: string) => {
+    try {
+      const res = await api.get(`/asignaciones/prueba-entrega/archivos/${fileId}`, { responseType: "blob" });
+      window.open(URL.createObjectURL(res.data as Blob), "_blank");
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={`Evidencia de entrega · Asignación #${asignacion.id}`}
+      description="Fotos/firmas capturadas por el conductor al entregar (para auditoría y disputas)."
+      footer={<Button variant="outline" onClick={onClose}>Cerrar</Button>}
+    >
+      {isLoading ? (
+        <p className="text-sm text-slate-500">Cargando evidencia…</p>
+      ) : !entregas || entregas.length === 0 ? (
+        <p className="text-sm text-slate-500">Esta asignación aún no tiene evidencia de entrega.</p>
+      ) : (
+        <div className="space-y-4">
+          {entregas.map((ev) => (
+            <div key={ev.id} className="rounded-xl border border-slate-200 p-3">
+              <div className="mb-2 text-xs text-slate-500">
+                {ev.receptor ? <>Recibió <span className="font-medium text-slate-700">{ev.receptor}</span> · </> : null}
+                {formatDate(ev.timestamp)}
+                {ev.descripcion ? ` · ${ev.descripcion}` : ""}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ev.archivos.map((a) => (
+                  <button
+                    key={a.file_id}
+                    onClick={() => abrir(a.file_id)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-200"
+                  >
+                    <Camera className="h-3.5 w-3.5" /> {a.filename}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </Modal>
   );
 }

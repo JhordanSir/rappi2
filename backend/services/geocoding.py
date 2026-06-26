@@ -40,3 +40,18 @@ async def resolver_coords(
 
     geo_lon, geo_lat = result
     return geo_lat, geo_lon
+
+
+async def direccion_desde_coords(lat: float, lon: float) -> Optional[str]:
+    """Geocodificacion inversa resiliente: coordenadas -> direccion legible.
+
+    Devuelve None (sin lanzar) si el geocoding esta deshabilitado o ORS falla, para
+    no romper la UI; el usuario siempre puede escribir la direccion a mano.
+    """
+    if not getattr(settings, "GEOCODING_ENABLED", True):
+        return None
+    try:
+        return await ors_service.reverse_geocode(lat, lon)
+    except Exception as exc:
+        logger.warning("Geocodificacion inversa fallida para (%s, %s): %s", lat, lon, exc)
+        return None

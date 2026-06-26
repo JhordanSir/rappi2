@@ -1,10 +1,14 @@
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from schemas.common import EstadoVehiculo
+
+# Formato de placa esperado: 3 letras, guion, 3 dígitos (p. ej. AQP-101).
+PLACA_RE = re.compile(r"^[A-Z]{3}-\d{3}$")
 
 
 class VehiculoBase(BaseModel):
@@ -16,7 +20,15 @@ class VehiculoBase(BaseModel):
 
 
 class VehiculoCreate(VehiculoBase):
-    pass
+    # El validador va solo en creación (no en VehiculoResponse) para no romper
+    # la serialización de placas históricas que no cumplan el formato.
+    @field_validator("placa")
+    @classmethod
+    def _validar_placa(cls, v: str) -> str:
+        v = (v or "").strip().upper()
+        if not PLACA_RE.match(v):
+            raise ValueError("La placa debe tener el formato ABC-123 (3 letras, guion, 3 dígitos)")
+        return v
 
 
 class VehiculoUpdate(BaseModel):

@@ -161,6 +161,14 @@ async def main():
             db.add(ClienteDireccion(cliente_id=c.id, direccion=f"Av. {d1} {random.randint(100,1999)}", distrito=d1, ciudad="Arequipa", pais="PE", lat=c1[0], lon=c1[1], es_principal=True))
             d2, c2 = DISTRITOS[(i + 3) % len(DISTRITOS)]
             db.add(ClienteDireccion(cliente_id=c.id, direccion=f"Calle {d2} {random.randint(100,999)}", distrito=d2, ciudad="Arequipa", pais="PE", lat=c2[0], lon=c2[1]))
+            # Integridad (P2): todo cliente debe tener su usuario para iniciar sesion.
+            db.add(Usuario(
+                username=f"cliente{i+1}",
+                email=f"cliente{i+1}@{DEMO_DOMAIN}",
+                password_hash=hash_password("demo123"),
+                rol_id=roles["Cliente"].id,
+                cliente_id=c.id,
+            ))
             clientes.append(c)
         await db.commit()
 
@@ -174,11 +182,6 @@ async def main():
         for placa, tipo, cap, est in vehiculos_def:
             db.add(Vehiculo(placa=placa, tipo=tipo, capacidad_kg=cap, estado=est, activo=(est != "Inactivo")))
         await db.commit()
-
-        # ---- Usuario cliente demo ----
-        cliente_user = Usuario(username="cliente", email=f"cuenta.cliente@{DEMO_DOMAIN}", password_hash=hash_password("demo123"), rol_id=roles["Cliente"].id, cliente_id=clientes[0].id)
-        db.add(cliente_user)
-        await db.flush()
 
         # ---- Conductores (usuario + perfil) ----
         nombres_cond = ["Juan Mamani Quispe", "Rosa Huamaní Ccama", "Carlos Apaza Flores", "Lucía Choque Mamani", "Pedro Cáceres Zúñiga", "Ana Ticona Larico"]
@@ -442,7 +445,7 @@ async def main():
     print("    - admin / admin123        → órdenes multidestino, evidencia, run agrupado, incidencias")
     print("    - conductor6 / demo123    → RUN AGRUPADO (2 órdenes) en curso, entregar/no entregar por destino")
     print("    - conductor2 / demo123    → entrega en curso con multidestino")
-    print("    - cliente / demo123       → sus pedidos (incluye multidestino) y prueba de entrega")
+    print("    - cliente1 / demo123      → sus pedidos (incluye multidestino) y prueba de entrega")
     print("=" * 60)
 
 

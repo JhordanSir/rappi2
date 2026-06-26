@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from api.dependencies import UserScope, get_scope, require_permiso
 from core.database import get_db
 from models.clientes import Cliente, ClienteDireccion
+from models.usuarios import Usuario
 from schemas.clientes import (
     ClienteCreate,
     ClienteDireccionCreate,
@@ -131,6 +132,12 @@ async def delete_cliente(
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     cliente.activo = False
+    # Cascada (P6): desactivar el usuario vinculado, si existe.
+    usuario = (
+        await db.execute(select(Usuario).where(Usuario.cliente_id == cliente.id))
+    ).scalar_one_or_none()
+    if usuario is not None:
+        usuario.activo = False
     await db.commit()
 
 

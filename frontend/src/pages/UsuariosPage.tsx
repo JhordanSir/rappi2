@@ -25,7 +25,8 @@ export default function UsuariosPage() {
   const { data, isLoading } = useUsuarios({ limit: 200 });
   const { data: roles } = useRoles();
   const writable = can("usuarios", "write");
-  const del = useApiMutation((id: number) => api.delete(`/usuarios/${id}`), ["usuarios"]);
+  // Invalida tambien conductores/clientes: desactivar un usuario desactiva en cascada sus fichas (P6).
+  const del = useApiMutation((id: number) => api.delete(`/usuarios/${id}`), ["usuarios", "conductores", "clientes"]);
 
   const rows = useMemo(
     () => (data ?? []).filter((u) => !search || u.username.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())),
@@ -92,9 +93,11 @@ function UsuarioForm({ usuario, roles, onClose }: { usuario: Usuario | null; rol
     rol_id: usuario?.rol_id ? String(usuario.rol_id) : "",
     activo: usuario?.activo ?? true,
   });
+  // Crear/editar un usuario puede crear o migrar su ficha Cliente/Conductor (P3, P4),
+  // por eso invalidamos también esas listas.
   const m = useApiMutation(
     (body: any) => (isEdit ? api.patch(`/usuarios/${usuario!.id}`, body) : api.post("/usuarios/", body)),
-    ["usuarios"],
+    ["usuarios", "conductores", "clientes"],
   );
   const submit = () => {
     if (!form.rol_id) return toast.error("Selecciona un rol");

@@ -7,9 +7,12 @@ from sqlalchemy.orm import selectinload
 from api.dependencies import invalidar_cache_permisos, require_permiso
 from core.database import get_db
 from core.security import hash_password
+from models.clientes import Cliente
+from models.conductores import Conductor
 from models.roles import Rol
 from models.usuarios import Usuario
 from schemas.usuarios import UsuarioCreate, UsuarioResponse, UsuarioUpdate
+from services.provisioning import sincronizar_por_rol
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -48,6 +51,9 @@ async def create_usuario(
     )
     db.add(usuario)
     try:
+        await db.flush()  # asigna usuario.id (necesario para la ficha especializada)
+        # Crea/enlaza la ficha Cliente o Conductor segun el rol (P1, P4).
+        await sincronizar_por_rol(db, usuario, rol.nombre)
         await db.commit()
         await db.refresh(usuario)
     except IntegrityError:
@@ -90,13 +96,24 @@ async def update_usuario(
     rol_anterior = usuario.rol_id
     for k, v in update.items():
         setattr(usuario, k, v)
+    rol_cambio = usuario.rol_id != rol_anterior
+    rol_nuevo = None
+    if rol_cambio:
+        rol_nuevo = await db.get(Rol, usuario.rol_id)
+        if rol_nuevo is None:
+            await db.rollback()
+            raise HTTPException(status_code=400, detail="rol_id invalido")
     try:
+        await db.flush()
+        # Al cambiar de rol, migrar/crear la ficha especializada (P3).
+        if rol_cambio:
+            await sincronizar_por_rol(db, usuario, rol_nuevo.nombre)
         await db.commit()
         await db.refresh(usuario)
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status_code=400, detail="Email ya en uso")
-    if usuario.rol_id != rol_anterior:
+        raise HTTPException(status_code=400, detail="Email o licencia ya en uso")
+    if rol_cambio:
         invalidar_cache_permisos(rol_anterior)
         invalidar_cache_permisos(usuario.rol_id)
     result = await db.execute(
@@ -115,4 +132,15 @@ async def delete_usuario(
     if usuario is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     usuario.activo = False
+    # Cascada (P6): desactivar las fichas especializadas vinculadas.
+    conductor = (
+        await db.execute(select(Conductor).where(Conductor.usuario_id == usuario.id))
+    ).scalar_one_or_none()
+    if conductor is not None:
+        conductor.activo = False
+        conductor.disponibilidad = "Inactivo"
+    if usuario.cliente_id is not None:
+        cliente = await db.get(Cliente, usuario.cliente_id)
+        if cliente is not None:
+            cliente.activo = False
     await db.commit()

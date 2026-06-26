@@ -117,9 +117,14 @@ async def create_orden(
     ajuste_monto = data.pop("ajuste_monto", None)
     ajuste_motivo = data.pop("ajuste_motivo", None)
     # Un cliente solo puede crear ordenes a su propio nombre (se ignora el cliente_id enviado).
-    if not scope.ve_todo() and scope.cliente_id is not None:
+    if not scope.ve_todo():
+        if scope.cliente_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Tu usuario no esta vinculado a un cliente; contacta al administrador",
+            )
         data["cliente_id"] = scope.cliente_id
-    cliente = await db.get(Cliente, data["cliente_id"])
+    cliente = await db.get(Cliente, data.get("cliente_id"))
     if cliente is None or not cliente.activo:
         raise HTTPException(status_code=400, detail="cliente_id invalido o inactivo")
 

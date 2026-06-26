@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, Pencil, Truck, IdCard } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useConductores, useVehiculos, useApiMutation } from "@/api/hooks";
+import { useConductores, useVehiculos, useUsuarios, useApiMutation } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { Conductor, DisponibilidadConductor } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -64,6 +64,13 @@ export default function ConductoresPage() {
 function ConductorForm({ conductor, onClose }: { conductor: Conductor | null; onClose: () => void }) {
   const isEdit = !!conductor;
   const { data: vehiculos } = useVehiculos({ limit: 200 });
+  const { data: usuarios } = useUsuarios({ limit: 200 });
+  const { data: conductoresAll } = useConductores({ limit: 200 });
+  // Usuarios elegibles: rol Conductor, activos y aún sin perfil de conductor.
+  const usadosIds = new Set((conductoresAll ?? []).map((c) => c.usuario_id));
+  const usuariosDisponibles = (usuarios ?? []).filter(
+    (u) => u.rol?.nombre === "Conductor" && u.activo && !usadosIds.has(u.id),
+  );
   const [form, setForm] = useState({
     nombre: conductor?.nombre ?? "",
     licencia: conductor?.licencia ?? "",
@@ -94,8 +101,13 @@ function ConductorForm({ conductor, onClose }: { conductor: Conductor | null; on
         <Field label="Nombre" required><Input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} /></Field>
         {!isEdit && (
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Licencia" required><Input value={form.licencia} onChange={(e) => setForm({ ...form, licencia: e.target.value })} placeholder="ABC-123" /></Field>
-            <Field label="Usuario ID" required hint="ID de usuario vinculado"><Input type="number" value={form.usuario_id} onChange={(e) => setForm({ ...form, usuario_id: e.target.value })} /></Field>
+            <Field label="Licencia" required><Input value={form.licencia} onChange={(e) => setForm({ ...form, licencia: e.target.value })} placeholder="Q12345678" /></Field>
+            <Field label="Usuario vinculado" required hint="Usuario con rol Conductor">
+              <Select value={form.usuario_id} onChange={(e) => setForm({ ...form, usuario_id: e.target.value })}>
+                <option value="">Seleccionar…</option>
+                {usuariosDisponibles.map((u) => <option key={u.id} value={u.id}>{u.username} · {u.email}</option>)}
+              </Select>
+            </Field>
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">
