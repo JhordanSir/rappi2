@@ -1,35 +1,12 @@
-import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
-import { Truck, Navigation, ShieldCheck } from "lucide-react";
-import toast from "react-hot-toast";
+import { Navigate } from "react-router-dom";
+import { Truck, Navigation, ShieldCheck, LogIn } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
-import { GoogleSignInButton } from "@/auth/GoogleSignInButton";
-import { apiError } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { Field, Input } from "@/components/ui/Field";
 
 export default function LoginPage() {
   const { user, login } = useAuth();
-  const navigate = useNavigate();
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
-  const [loading, setLoading] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await login(username, password);
-      toast.success("Bienvenido de nuevo");
-      navigate("/");
-    } catch (err) {
-      toast.error(apiError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="flex min-h-screen">
@@ -80,7 +57,7 @@ export default function LoginPage() {
         <p className="relative text-xs text-stone-400">© {new Date().getFullYear()} Rappi2 · Arequipa, Perú 🇵🇪</p>
       </div>
 
-      {/* Formulario */}
+      {/* Acceso */}
       <div className="flex w-full items-center justify-center bg-sillar-100 px-6 lg:w-1/2">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
@@ -90,32 +67,19 @@ export default function LoginPage() {
             <p className="text-lg font-bold text-stone-900">Rappi2</p>
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-stone-900">Iniciar sesión</h2>
-          <p className="mt-1 text-sm text-stone-500">Ingresa tus credenciales para acceder al panel.</p>
+          <p className="mt-1 text-sm text-stone-500">
+            Te redirigiremos a Keycloak para autenticarte de forma segura.
+          </p>
 
-          <form onSubmit={submit} className="mt-8 space-y-4">
-            <Field label="Usuario" required>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="admin" autoFocus />
-            </Field>
-            <Field label="Contraseña" required>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
-            </Field>
-            <Button type="submit" loading={loading} size="lg" className="w-full">
-              Entrar
-            </Button>
-          </form>
-
-          <GoogleSignInButton />
+          <Button onClick={login} size="lg" className="mt-8 w-full">
+            <LogIn className="mr-2 h-5 w-5" />
+            Iniciar sesión con Keycloak
+          </Button>
 
           <div className="mt-6 rounded-xl border border-sillar-300 bg-white p-3 text-center text-xs text-stone-500">
             Demo: <span className="font-semibold text-stone-700">admin</span> /{" "}
             <span className="font-semibold text-stone-700">admin123</span>
           </div>
-          <p className="mt-4 text-center text-sm text-stone-500">
-            ¿Eres cliente nuevo?{" "}
-            <Link to="/registro" className="font-semibold text-brand-700 hover:underline">
-              Crea tu cuenta
-            </Link>
-          </p>
         </div>
       </div>
     </div>

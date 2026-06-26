@@ -15,7 +15,7 @@
 
 ## ¿Qué hace? (funciones de un vistazo)
 
-- 🔐 **Auth + RBAC**: JWT (access/refresh con rotación) y **Sign in with Google**; permisos por `(recurso, acción)` con comodín `*`.
+- 🔐 **Auth + RBAC**: autenticación con **Keycloak (OIDC, Authorization Code + PKCE)**; el backend valida el token (no emite JWT propios) y deriva permisos `(recurso, acción)` —con comodín `*`— del rol del token.
 - 🧑‍🤝‍🧑 **4 experiencias por rol** en la misma SPA: **Cliente**, **Conductor (PWA)**, **Despachador** y **Administrador**.
 - 📦 **Ciclo de orden**: crear → **cotizar precio** (server-side) → **pagar (MercadoPago Checkout Pro / modo simulado)** → asignar → entregar (multidestino, entregas parciales, *run* agrupado).
 - 🧭 **Ruteo por calles con OSRM**: geometría, distancia y tiempo reales; geocerca de corredor automática.
@@ -85,7 +85,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
 
 - Frontend: <http://localhost:5173> · API / Swagger: <http://localhost:8000/docs>
-- Logins demo: **admin / admin123** · **cliente1…16 / demo123** · **conductor1…13 / demo123**
+- Consola Keycloak: <http://localhost:8080> (admin / `KEYCLOAK_ADMIN_PASSWORD`)
+- Usuarios de prueba (en Keycloak, realm `rappi2`): **admin / admin123** (Admin) · **cliente1 / cliente123** (Cliente) · **conductor1 / conductor123** (Conductor)
 
 Archivos compose: `docker-compose.yml` (base producción-segura) · `docker-compose.override.yml`
 (dev, auto) · `docker-compose.prod.yml` (prod: OSRM + workers). Diferencia dev↔prod en detalle:
@@ -99,13 +100,14 @@ Toda la configuración vive en **un solo `.env` en la raíz** (Compose lo lee pa
 | Variable | Para qué |
 |----------|----------|
 | `POSTGRES_*` / `MONGO_*` | Credenciales y nombres de BD (cámbialas en prod). |
-| `SECRET_KEY` | Firma de JWT (genera una: `openssl rand -hex 32`). |
+| `KEYCLOAK_PUBLIC_URL` / `KEYCLOAK_INTERNAL_URL` | URL pública (issuer) e interna (JWKS) de Keycloak. |
+| `KEYCLOAK_REALM` / `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_AUDIENCE` | Realm, cliente SPA y audiencia que valida el backend. |
+| `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` | Admin de la consola de Keycloak (cámbialo en prod). |
 | `CORS_ORIGINS` | Orígenes permitidos (recórtalo a tu dominio en prod). |
 | `PUBLIC_BASE_URL` / `FRONTEND_BASE_URL` | URLs públicas (webhook de pago y *back_urls*). |
 | `MP_ACCESS_TOKEN` / `MP_PUBLIC_KEY` / `MP_WEBHOOK_SECRET` | MercadoPago (vacío = **modo simulado**). |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_ROLE_MAP` | Sign in with Google + allowlist `email:Rol`. |
 | `ORS_API_KEY` | Geocodificación de direcciones (opcional). |
-| `VITE_API_URL` / `VITE_GOOGLE_CLIENT_ID` | *Build-args* del frontend (se hornean en el bundle). |
+| `VITE_API_URL` / `VITE_KEYCLOAK_URL` / `VITE_KEYCLOAK_REALM` / `VITE_KEYCLOAK_CLIENT_ID` | *Build-args* del frontend (se hornean en el bundle). |
 | `API_WORKERS` / `OSRM_REGION_URL` | Workers de uvicorn y mapa de OSRM (prod). |
 
 ### Despliegue en Dokploy
@@ -168,14 +170,12 @@ Arquitectura y arranque del sistema:
 Seguridad y acceso:
 
 - `api/auth.py`
-  - Login
-  - Register
-  - Refresh
-  - Logout
-- JWT
-- Refresh tokens
-- Helpers de seguridad:
-  - `core/security.py`
+  - `GET /auth/me` (perfil del usuario autenticado)
+  - El login/registro/refresh/logout los maneja Keycloak (OIDC).
+- Validación de tokens Keycloak (JWKS): `services/keycloak.py`
+- Provisioning del usuario local: `services/provisioning.py`
+- Mapeo rol→permisos: `core/permisos.py`
+- Helpers de hashing (fichas locales): `core/security.py`
 - Dependencias de auth/permisos:
   - `api/dependencies.py`
 
@@ -322,7 +322,7 @@ geoespacial/telemetría/binarios, con **Redis** como *backplane* de tiempo real 
 ## Funcionalidades del sistema (cada función)
 
 ### 🧑 Cliente — portal de autoservicio
-- **Registro/login** abierto (siempre nace con rol `Cliente`) y **Sign in with Google**.
+- **Login con Keycloak** (OIDC); el alta de cuentas se gestiona en Keycloak. Al primer acceso, el usuario se provisiona localmente y se le crea su ficha de Cliente.
 - **Mis pedidos**: lista paginada con estado en vivo (`GET /api/ordenes`).
 - **Nuevo envío**: elige origen/destino en mapa, **cotiza el precio** server-side (`POST /api/ordenes/cotizar`) y crea la orden (`POST /api/ordenes`).
 - **Checkout**: paga por adelantado con **MercadoPago Checkout Pro** (`POST /api/ordenes/{id}/checkout`) o **modo simulado** (`POST /api/pagos/simular/{id}`); páginas de retorno éxito/fallo/pendiente.
@@ -343,15 +343,17 @@ geoespacial/telemetría/binarios, con **Redis** como *backplane* de tiempo real 
 - **Reportes operativos** en tiempo real (`GET /api/reportes/operativo`).
 
 ### 🛡️ Administrador — panel de sistema
-- **Usuarios**, **roles y permisos** (RBAC), **auditoría**, **sesiones** activas (revocar).
+- **Usuarios** y **auditoría**; la **asignación de roles** y la gestión de sesiones viven en la **consola de Keycloak**.
+- **Roles & Permisos**: los permisos finos (`recurso:acción`) se editan con una **matriz de multiselección** y se guardan en una sola operación.
 - **Tarifa dinámica** editable (`GET/PATCH /api/tarifa`) y **reportes globales** (ventas, SLA, ratings, KPIs).
 
 ### 🔁 Funciones transversales
 | Función | Cómo |
 |---------|------|
-| **Auth & RBAC** | JWT access/refresh con rotación + revocación; Google OAuth; permisos `(recurso, acción)` con `*`; *ownership* por fila (cliente/conductor solo ven lo suyo). |
+| **Auth & RBAC** | **Keycloak (OIDC + PKCE)** emite el token; el backend lo valida (JWKS) y deriva permisos `(recurso, acción)` —con `*`— del rol del token; *ownership* por fila (cliente/conductor solo ven lo suyo). |
 | **Tarifa & precio** | Precio calculado server-side: `base + km + min + peso volumétrico` × nivel de servicio × recargos (nocturno/pico/finde). |
 | **Pagos** | MercadoPago Checkout Pro (sandbox) con webhook; *fallback* a modo simulado sin llaves. La orden solo es despachable tras pago aprobado. |
+| **Facturas / RUC** | Antes de registrar/validar una factura se valida el **RUC**: formato + dígito verificador (módulo 11) y, si hay proveedor configurado (`SUNAT_API_URL`), estado **ACTIVO** en SUNAT; manejo de timeouts con fallo-abierto/cerrado. |
 | **Tiempo real** | **SSE + Redis pub/sub** (`GET /api/realtime/stream`): empuja posición, cambios de estado y notificaciones a cliente/despacho entre varios workers. |
 | **Tracking & geocercas** | Pings GPS en Mongo (`$geoNear`, TTL), geocercas `2dsphere`, punto-en-polígono, detección de desvío de corredor. |
 | **Rutas (OSRM)** | Geometría/distancia/tiempo reales por calles, autogeneradas al crear la orden y persistidas. |
@@ -372,7 +374,7 @@ geoespacial/telemetría/binarios, con **Redis** como *backplane* de tiempo real 
 | **Documental/Geo** | MongoDB 6 · Motor · GridFS | `$geoNear`/`2dsphere`, telemetría de alto volumen, binarios (evidencias). |
 | **Tiempo real** | Redis 7 (pub/sub) · SSE | *Fan-out* de eventos entre workers de uvicorn. |
 | **Ruteo / geo** | OSRM (auto-hospedado en prod) · OpenRouteService (geocoding) · httpx | Ruteo por calles sin API key; geocodificación opcional. |
-| **Seguridad / pagos** | python-jose (JWT) · passlib[bcrypt] · google-auth · MercadoPago · Pillow | Tokens, hashing, OAuth, checkout, compresión de evidencias. |
+| **Seguridad / pagos** | Keycloak (OIDC) · python-jose (validación RS256/JWKS) · passlib[bcrypt] · MercadoPago · Pillow | IdP externo, validación de tokens, hashing de fichas locales, checkout, compresión de evidencias. |
 | **Frontend** | React 18 · TypeScript · Vite 5 · TailwindCSS · @tanstack/react-query · axios · react-router-dom · leaflet · recharts | SPA tipada, caché/paginación de datos, layouts por rol, mapas y gráficos. |
 | **Infra** | Docker Compose · nginx · Dokploy | Orquestación multi-servicio, SPA + proxy `/api`, despliegue gestionado. |
 
@@ -400,8 +402,8 @@ La motivación técnica y de negocio que se desprende del diseño es:
     con TTL y evidencias.
 - Soportar procesos reales de logística: asignación de órdenes, estados de entrega,
   seguimiento, KPIs/reportes, y auditoría de acciones.
-- Seguridad y control de acceso mediante RBAC (roles/permisos) y autenticación con
-  JWT + refresh tokens con rotación obligatoria.
+- Seguridad y control de acceso mediante RBAC (roles/permisos) y autenticación
+  federada con **Keycloak** (OIDC); el backend valida los tokens, no los emite.
 
 ---
 
@@ -410,10 +412,10 @@ La motivación técnica y de negocio que se desprende del diseño es:
 ### Requerimientos funcionales principales
 
 - Autenticación y sesiones
-  - Registro, login, refresh token, logout.
-  - Persistencia de refresh tokens (revocables).
+  - Login/registro/refresh/logout gestionados por **Keycloak** (OIDC, Authorization Code + PKCE).
+  - El backend valida el access token (JWKS) y provisiona/enlaza el usuario local en el primer acceso.
 - RBAC (Roles/Permisos)
-  - Gestión de roles y permisos por (recurso, acción) con comodines `*`.
+  - Roles asignados en Keycloak (en el token); permisos `(recurso, acción)` —con `*`— derivados del rol.
   - Gestión operativa
   - CRUD de clientes y direcciones.
   - CRUD de órdenes, pagos, facturas.
@@ -440,9 +442,8 @@ La motivación técnica y de negocio que se desprende del diseño es:
 - Contenerización: arranque con Docker Compose.
 - Migraciones: Alembic para versionar esquema PostgreSQL.
 - Seguridad:
-  - Hash de contraseñas (bcrypt).
-  - JWT HS256.
-  - Refresh tokens con rotación y revocación.
+  - Autenticación federada con Keycloak (OIDC); tokens RS256 validados contra el JWKS.
+  - Hash de contraseñas (bcrypt) para fichas locales.
   - CORS configurable.
 - Observabilidad mínima: auditoría HTTP en MongoDB (y TTL).
 
@@ -459,6 +460,8 @@ Arquitectura tipo API monolítica modular:
 - `models/`: modelos SQLAlchemy (PostgreSQL).
 - `schemas/`: esquemas Pydantic (DTOs).
 - `services/`:
+  - `keycloak.py`: validación de tokens OIDC (JWKS) y extracción de roles.
+  - `provisioning.py`: alta/enlace del usuario local desde los claims del token.
   - `pricing_service.py`: cálculo de tarifa/precio server-side.
   - `osrm_service.py` (ruteo por calles) · `ors_service.py` (geocoding).
   - `payments/`: MercadoPago Checkout Pro.
@@ -470,9 +473,9 @@ Arquitectura tipo API monolítica modular:
   - PostgreSQL async (`database.py`)
   - Mongo (`mongo.py`)
   - Redis + SSE tiempo real (`realtime.py`)
-  - Seguridad: JWT, hashing, OAuth (`security.py`)
+  - Mapeo rol→permisos (`permisos.py`) · hashing de fichas locales (`security.py`)
 - `alembic/`: migraciones de esquema.
-- `scripts/`: `seed_admin` (roles/permisos/admin) · `seed_demo` (datos demo) · `seed_if_empty` (auto-seed en dev).
+- `scripts/`: `seed_admin` (roles/permisos) · `seed_demo` (datos demo) · `seed_if_empty` (auto-seed en dev).
 
 ---
 
@@ -551,84 +554,24 @@ datos flexibles y consultar eventos del servicio de manera rápida.
 
 ## Evidencias Postman
 
-### Auth
+### Auth (Keycloak / OIDC)
 
-#### `POST` /api/auth/login — Iniciar sesión
-- **Auth:** No requiere
-- **Content-Type:** `application/x-www-form-urlencoded`
-- **Body:** `username` · `password`
-
-![Login](docs/images/rappi2_auth_login.jpeg)
-
-#### `POST` /api/auth/register — Registrar usuario
-- **Auth:** No requiere
-- **Body (JSON):**
-```json
-{
-  "username": "string",
-  "email": "user@example.com",
-  "password": "string",
-  "rol_id": null,
-  "nombre": "string",
-  "telefono": "string",
-  "cc_id": "string"
-}
-```
-
-![Register](docs/images/rappi2_auth_register.jpeg)
+> El **login, registro, refresh y logout** los gestiona **Keycloak**, no el backend. El
+> frontend obtiene el token vía OIDC (Authorization Code + PKCE) y lo envía en
+> `Authorization: Bearer`. El backend solo lo **valida** contra el JWKS de Keycloak y, en el
+> primer acceso, **provisiona/enlaza** el usuario local por su `sub`. Flujos relevantes en
+> Keycloak (realm `rappi2`):
+>
+> - **Autorización:** `GET {KEYCLOAK_URL}/realms/rappi2/protocol/openid-connect/auth`
+> - **Token:** `POST {KEYCLOAK_URL}/realms/rappi2/protocol/openid-connect/token`
+> - **Logout:** `GET {KEYCLOAK_URL}/realms/rappi2/protocol/openid-connect/logout`
 
 #### `GET` /api/auth/me — Obtener usuario autenticado
-- **Auth:** Bearer Token (JWT)
+- **Auth:** Bearer Token (emitido por Keycloak)
 - **Body:** No requiere
+- Devuelve el usuario local provisionado, su rol y los permisos del rol (para la UI).
 
 ![Me](docs/images/rappi2_auth_me.jpeg)
-
-#### `POST` /api/auth/refresh — Renovar tokens
-- **Auth:** No requiere
-- **Body (JSON):**
-```json
-{ "refresh_token": "string" }
-```
-
-![Refresh](docs/images/rappi2_auth_refresh.jpeg)
-
-#### `POST` /api/auth/logout — Cerrar sesión
-- **Auth:** No requiere
-- **Body (JSON):**
-```json
-{ "refresh_token": "string" }
-```
-
-![Logout](docs/images/rappi2_auth_logout.jpeg)
-
----
-
-### Sesiones
-
-#### `GET` /api/usuarios/me/sesiones — Mis sesiones activas
-- **Auth:** Bearer Token (JWT)
-- **Query params:** `activos_solo` (bool, default: true)
-
-![Me sesiones](docs/images/rappi2_sesiones_me_sesiones.jpeg)
-
-#### `GET` /api/usuarios/{usuario_id}/sesiones — Sesiones de un usuario
-- **Auth:** Bearer Token (JWT) · Permiso: `sesiones:read`
-- **Query params:** `activos_solo` · `skip` · `limit`
-
-![Usuario sesiones](docs/images/rappi2_sesiones_usuario_sesiones.jpeg)
-
-#### `DELETE` /api/usuarios/{usuario_id}/sesiones/{sesion_id} — Revocar una sesión
-- **Auth:** Bearer Token (JWT) · Permiso: `sesiones:delete`
-- **Body:** No requiere
-- **Response:** `204 No Content`
-
-![Revocar](docs/images/rappi2_sesiones_revocar.jpeg)
-
-#### `DELETE` /api/usuarios/{usuario_id}/sesiones — Revocar todas las sesiones
-- **Auth:** Bearer Token (JWT) · Permiso: `sesiones:delete`
-- **Body:** No requiere
-
-![Revocar todas](docs/images/rappi2_sesiones_revocar_todas.jpeg)
 
 ---
 

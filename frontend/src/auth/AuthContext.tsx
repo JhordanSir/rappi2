@@ -1,15 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { api, tokenStore } from "@/lib/api";
-import type { TokenPair, Usuario } from "@/types";
+import { api } from "@/lib/api";
+import keycloak, { initKeycloak } from "@/auth/keycloak";
+import type { Usuario } from "@/types";
 
 interface AuthState {
   user: Usuario | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  /** Inicia sesión con el ID token (credential) de Google Identity Services. */
-  loginWithGoogle: (credential: string) => Promise<void>;
-  logout: () => Promise<void>;
+  /** Redirige a Keycloak para iniciar sesión (OIDC Authorization Code + PKCE). */
+  login: () => void;
+  /** Cierra la sesión en Keycloak y vuelve a /login. */
+  logout: () => void;
   /** Comprueba permiso recurso:accion contra los permisos del rol (soporta comodín *). */
   can: (recurso: string, accion: string) => boolean;
 }
@@ -20,60 +21,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadMe = async () => {
-    if (!tokenStore.access) {
-      setLoading(false);
-      return;
-    }
-    try {
-      const { data } = await api.get<Usuario>("/auth/me");
-      setUser(data);
-    } catch {
-      tokenStore.clear();
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    void loadMe();
-    const onUnauth = () => {
-      tokenStore.clear();
-      setUser(null);
-    };
+    let mounted = true;
+
+    initKeycloak()
+      .then(async (authenticated) => {
+        if (authenticated) {
+          try {
+            const { data } = await api.get<Usuario>("/auth/me");
+            if (mounted) setUser(data);
+          } catch {
+            if (mounted) setUser(null);
+          }
+        }
+        if (mounted) setLoading(false);
+      })
+      .catch(() => {
+        if (mounted) setLoading(false);
+      });
+
+    // 401 desde el backend (token inválido/expirado sin refresh posible) -> limpiar.
+    const onUnauth = () => setUser(null);
     window.addEventListener("rappi2:unauthorized", onUnauth);
-    return () => window.removeEventListener("rappi2:unauthorized", onUnauth);
+    return () => {
+      mounted = false;
+      window.removeEventListener("rappi2:unauthorized", onUnauth);
+    };
   }, []);
 
-  const login = async (username: string, password: string) => {
-    const body = new URLSearchParams();
-    body.append("username", username);
-    body.append("password", password);
-    const { data } = await api.post<TokenPair>("/auth/login", body, {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
-    tokenStore.set(data);
-    const me = await api.get<Usuario>("/auth/me");
-    setUser(me.data);
+  const login = () => {
+    void keycloak.login({ redirectUri: window.location.origin + "/" });
   };
 
-  const loginWithGoogle = async (credential: string) => {
-    const { data } = await api.post<TokenPair>("/auth/google", { credential });
-    tokenStore.set(data);
-    const me = await api.get<Usuario>("/auth/me");
-    setUser(me.data);
-  };
-
-  const logout = async () => {
-    const refresh = tokenStore.refresh;
-    try {
-      if (refresh) await api.post("/auth/logout", { refresh_token: refresh });
-    } catch {
-      /* ignore */
-    }
-    tokenStore.clear();
+  const logout = () => {
     setUser(null);
+    void keycloak.logout({ redirectUri: window.location.origin + "/login" });
   };
 
   const can = (recurso: string, accion: string): boolean => {
@@ -84,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, login, loginWithGoogle, logout, can }),
+    () => ({ user, loading, login, logout, can }),
     [user, loading],
   );
 

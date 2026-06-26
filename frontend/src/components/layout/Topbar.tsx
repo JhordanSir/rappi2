@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Menu, LogOut, ChevronDown, MonitorSmartphone } from "lucide-react";
-import toast from "react-hot-toast";
+import { Menu, LogOut, ChevronDown } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { NotificationsBell } from "./NotificationsBell";
 import { initials } from "@/lib/utils";
@@ -20,7 +18,6 @@ function useClickOutside<T extends HTMLElement>(onOut: () => void) {
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false));
 
@@ -53,13 +50,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
               </div>
               <div className="my-1 h-px bg-sillar-200" />
               <button
-                onClick={() => { setOpen(false); navigate("/sesiones"); }}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-stone-700 hover:bg-sillar-100"
-              >
-                <MonitorSmartphone className="h-4 w-4" /> Mis sesiones
-              </button>
-              <button
-                onClick={() => logout().then(() => toast.success("Sesión cerrada"))}
+                onClick={() => { setOpen(false); logout(); }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
               >
                 <LogOut className="h-4 w-4" /> Cerrar sesión

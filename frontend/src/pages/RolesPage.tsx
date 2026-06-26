@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Shield, X, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Plus, Shield, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useRoles, useApiMutation } from "@/api/hooks";
@@ -95,44 +95,84 @@ function RolForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Filas/columnas de la matriz (con comodín * al inicio).
+const RECURSOS_ROWS = ["*", ...RECURSOS];
+const ACCIONES_COLS = ["*", ...ACCIONES];
+
 function PermisosModal({ rol, onClose }: { rol: Rol; onClose: () => void }) {
-  const [recurso, setRecurso] = useState(RECURSOS[0]);
-  const [accion, setAccion] = useState(ACCIONES[0]);
-  const add = useApiMutation((body: any) => api.post(`/roles/${rol.id}/permisos`, body), ["roles"]);
-  const remove = useApiMutation((pid: number) => api.delete(`/roles/${rol.id}/permisos/${pid}`), ["roles"]);
+  // Selección como conjunto "recurso:accion"; se inicializa con los permisos actuales y
+  // se guarda TODO de una sola vez (multiselección) vía PUT (el backend calcula el diff).
+  const inicial = useMemo(() => new Set(rol.permisos.map((p) => `${p.recurso}:${p.accion}`)), [rol]);
+  const [sel, setSel] = useState<Set<string>>(inicial);
+  const save = useApiMutation((body: any) => api.put(`/roles/${rol.id}/permisos`, body), ["roles"]);
+
+  const toggle = (recurso: string, accion: string) => {
+    const key = `${recurso}:${accion}`;
+    setSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const onSave = () => {
+    const permisos = Array.from(sel).map((s) => {
+      const [recurso, accion] = s.split(":");
+      return { recurso, accion };
+    });
+    save.mutate(
+      { permisos },
+      { onSuccess: () => { toast.success("Permisos actualizados"); onClose(); }, onError: (e) => toast.error(apiError(e)) },
+    );
+  };
 
   return (
-    <Modal open onClose={onClose} size="lg" title={`Permisos · ${rol.nombre}`} description="Otorga permisos por recurso y acción. Usa * como comodín total.">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 p-3">
-          <Field label="Recurso" className="flex-1">
-            <select className="input-base appearance-none" value={recurso} onChange={(e) => setRecurso(e.target.value)}>
-              <option value="*">* (todos)</option>
-              {RECURSOS.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </Field>
-          <Field label="Acción" className="flex-1">
-            <select className="input-base appearance-none" value={accion} onChange={(e) => setAccion(e.target.value)}>
-              <option value="*">* (todas)</option>
-              {ACCIONES.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </Field>
-          <Button onClick={() => add.mutate({ recurso, accion }, { onSuccess: () => toast.success("Permiso agregado"), onError: (e) => toast.error(apiError(e)) })} loading={add.isPending}>
-            <Plus className="h-4 w-4" /> Agregar
-          </Button>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {rol.permisos.length === 0 && <p className="text-sm text-slate-400">Este rol no tiene permisos.</p>}
-          {rol.permisos.map((p) => (
-            <span key={p.id} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 py-1 pl-2.5 pr-1.5 font-mono text-xs text-slate-700">
-              {p.recurso}:{p.accion}
-              <button onClick={() => remove.mutate(p.id, { onSuccess: () => toast.success("Permiso quitado") })} className="rounded p-0.5 text-slate-400 hover:bg-rose-100 hover:text-rose-600">
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={`Permisos · ${rol.nombre}`}
+      description="Marca todos los permisos del rol y guarda una sola vez. Usa la fila/columna * como comodín."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button loading={save.isPending} onClick={onSave}>Guardar permisos ({sel.size})</Button>
+        </>
+      }
+    >
+      <div className="max-h-[60vh] overflow-auto rounded-xl border border-slate-200">
+        <table className="w-full border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50">
+            <tr>
+              <th className="p-2 text-left font-medium text-slate-500">Recurso</th>
+              {ACCIONES_COLS.map((a) => (
+                <th key={a} className="p-2 text-center font-mono text-xs text-slate-500">{a}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {RECURSOS_ROWS.map((r) => (
+              <tr key={r} className="border-t border-slate-100 hover:bg-slate-50/60">
+                <td className="p-2 font-mono text-xs text-slate-700">{r}</td>
+                {ACCIONES_COLS.map((a) => {
+                  const checked = sel.has(`${r}:${a}`);
+                  return (
+                    <td key={a} className="p-2 text-center">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer accent-brand-600"
+                        checked={checked}
+                        onChange={() => toggle(r, a)}
+                        aria-label={`${r}:${a}`}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </Modal>
   );

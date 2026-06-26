@@ -3,27 +3,41 @@ from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
+from fastapi.security import OAuth2AuthorizationCodeBearer
+from jose.exceptions import JWTError
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from core.config import settings
 from core.database import get_db
 from core.mongo import get_mongo_db as _get_mongo_db
-from core.security import decode_access_token
 from models.asignaciones import Asignacion
 from models.conductores import Conductor
 from models.ordenes import Orden
-from models.usuarios import Usuario
 from models.roles import Permiso
+from models.usuarios import Usuario
+from services.keycloak import validate_token
+from services.provisioning import ensure_usuario_from_claims
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+# Esquema OAuth2 (Authorization Code) apuntando a Keycloak: habilita el botón
+# "Authorize" de /docs y documenta de dónde sale el token. El backend solo VALIDA
+# el Bearer recibido (no participa en el intercambio).
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl=settings.keycloak_authorization_url,
+    tokenUrl=settings.keycloak_token_url,
+    auto_error=True,
+)
 
 # Roles internos con visibilidad total (no se les aplica filtro de fila).
 STAFF_ROLES = {"Admin"}
 
+# El ROL del usuario lo asigna Keycloak (viene en el token y lo refleja usuario.rol_id),
+# pero el conjunto de permisos finos de cada rol vive en la BD local (tabla `permisos`) y
+# es editable desde "Roles & Permisos". Cache por rol con TTL corto para no consultar en
+# cada request; se invalida al editar permisos (ver api/roles.py).
 _PERMISO_CACHE: dict[int, tuple[float, list[tuple[str, str]]]] = {}
 _PERMISO_TTL_SECONDS = 60
 
@@ -38,17 +52,29 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("user_id")
-        if user_id is None:
-            raise credentials_exception
+        claims = await validate_token(token)
     except JWTError:
         raise credentials_exception
 
-    result = await db.execute(
-        select(Usuario).options(selectinload(Usuario.rol)).where(Usuario.id == user_id)
-    )
-    user = result.scalar_one_or_none()
+    # Provisiona/enlaza el espejo local del usuario de Keycloak.
+    try:
+        user = await ensure_usuario_from_claims(db, claims)
+        await db.commit()
+    except IntegrityError:
+        # Carrera entre dos primeros requests del mismo usuario: re-leer el existente.
+        await db.rollback()
+        user = (
+            await db.execute(select(Usuario).where(Usuario.keycloak_sub == claims.get("sub")))
+        ).scalar_one_or_none()
+        if user is None:
+            raise credentials_exception
+
+    # Recargar con el rol (lazy=joined no basta para un objeto recién creado/modificado).
+    user = (
+        await db.execute(
+            select(Usuario).options(selectinload(Usuario.rol)).where(Usuario.id == user.id)
+        )
+    ).scalar_one_or_none()
     if user is None or not user.activo:
         raise credentials_exception
     return user
@@ -81,7 +107,10 @@ def require_permiso(recurso: str, accion: str):
         for r, a in permisos:
             if (r == "*" or r == recurso) and (a == "*" or a == accion):
                 return user
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Sin permiso para {recurso}:{accion}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Sin permiso para {recurso}:{accion}",
+        )
     return _checker
 
 

@@ -9,13 +9,6 @@ export type EstadoPago = "Pendiente" | "Pagado" | "Fallido" | "Reembolsado";
 export type TipoEvidencia = "foto" | "video" | "audio" | "documento";
 
 // ---- Auth / RBAC ----
-export interface TokenPair {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  expires_in: number;
-}
-
 export interface Permiso {
   id: number;
   rol_id: number;
@@ -242,6 +235,15 @@ export interface Factura {
   url?: string | null;
 }
 
+export interface RucConsulta {
+  ruc: string;
+  razon_social?: string | null;
+  estado?: string | null;
+  condicion?: string | null;
+  activo?: boolean | null;
+  verificado_sunat: boolean;
+}
+
 // ---- Tracking / Seguimiento ----
 export interface GPSPing {
   id: string;
@@ -371,21 +373,14 @@ export interface CheckoutResponse {
 // ---- Auditoría ----
 export interface Auditoria {
   id: string;
-  usuario_id?: number | null;
+  /** Actor = username de Keycloak (preferred_username) o email; null si anónimo. */
+  actor?: string | null;
   ruta: string;
   metodo: string;
   ip?: string | null;
   status_code: number;
   payload_hash?: string | null;
   timestamp: string;
-}
-
-// ---- Sesiones ----
-export interface TokenInfo {
-  id: number;
-  usuario_id: number;
-  fecha_expiracion: string;
-  revocado: boolean;
 }
 
 // ---- Evidencias ----

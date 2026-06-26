@@ -7,7 +7,14 @@ from sqlalchemy.orm import selectinload
 from api.dependencies import invalidar_cache_permisos, require_permiso
 from core.database import get_db
 from models.roles import Permiso, Rol
-from schemas.roles import PermisoCreate, PermisoResponse, RolCreate, RolResponse, RolUpdate
+from schemas.roles import (
+    PermisoCreate,
+    PermisoResponse,
+    PermisosBulkSet,
+    RolCreate,
+    RolResponse,
+    RolUpdate,
+)
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -147,6 +154,45 @@ async def add_permiso(
         raise HTTPException(status_code=400, detail="Permiso ya existe para este rol")
     invalidar_cache_permisos(rol_id)
     return permiso
+
+
+@router.put("/{rol_id}/permisos", response_model=RolResponse)
+async def set_permisos(
+    rol_id: int,
+    payload: PermisosBulkSet,
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permiso("roles", "write")),
+):
+    """Reemplaza el conjunto completo de permisos del rol en UNA operación (multiselección).
+
+    Calcula el diff contra los permisos existentes: agrega los nuevos y elimina los que ya
+    no estén en la lista. Idempotente (los duplicados del payload se colapsan). Devuelve el
+    rol con sus permisos ya actualizados.
+    """
+    rol = await db.get(Rol, rol_id)
+    if rol is None:
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
+
+    deseados = {(p.recurso.strip(), p.accion.strip()) for p in payload.permisos}
+    existentes_rows = (
+        await db.execute(select(Permiso).where(Permiso.rol_id == rol_id))
+    ).scalars().all()
+    existentes = {(p.recurso, p.accion): p for p in existentes_rows}
+
+    # Quitar los que ya no están seleccionados.
+    for par, row in existentes.items():
+        if par not in deseados:
+            await db.delete(row)
+    # Agregar los nuevos.
+    for recurso, accion in deseados - set(existentes.keys()):
+        db.add(Permiso(rol_id=rol_id, recurso=recurso, accion=accion))
+
+    await db.commit()
+    invalidar_cache_permisos(rol_id)
+    result = await db.execute(
+        select(Rol).options(selectinload(Rol.permisos)).where(Rol.id == rol_id)
+    )
+    return result.scalar_one()
 
 
 @router.delete("/{rol_id}/permisos/{permiso_id}", status_code=status.HTTP_204_NO_CONTENT)

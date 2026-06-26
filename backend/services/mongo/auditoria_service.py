@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     coll = db[COLLECTION]
-    await coll.create_index([("usuario_id", ASCENDING), ("timestamp", DESCENDING)], name="ix_audit_user_ts")
+    await coll.create_index([("actor", ASCENDING), ("timestamp", DESCENDING)], name="ix_audit_actor_ts")
     await coll.create_index(
         [("timestamp", ASCENDING)],
         name="ix_audit_ttl",
@@ -30,7 +30,7 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 async def registrar(
     db: AsyncIOMotorDatabase,
-    usuario_id: Optional[int],
+    actor: Optional[str],
     ruta: str,
     metodo: str,
     ip: Optional[str],
@@ -39,7 +39,7 @@ async def registrar(
 ) -> None:
     try:
         await db[COLLECTION].insert_one({
-            "usuario_id": usuario_id,
+            "actor": actor,
             "ruta": ruta,
             "metodo": metodo,
             "ip": ip,
@@ -53,14 +53,14 @@ async def registrar(
 
 async def buscar(
     db: AsyncIOMotorDatabase,
-    usuario_id: Optional[int] = None,
+    actor: Optional[str] = None,
     metodo: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
 ) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {}
-    if usuario_id is not None:
-        query["usuario_id"] = usuario_id
+    if actor is not None:
+        query["actor"] = actor
     if metodo is not None:
         query["metodo"] = metodo
     cursor = db[COLLECTION].find(query).sort("timestamp", DESCENDING).skip(skip).limit(limit)

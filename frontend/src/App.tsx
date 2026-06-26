@@ -6,7 +6,6 @@ import { ClienteLayout } from "@/components/layout/ClienteLayout";
 import { ConductorLayout } from "@/components/layout/ConductorLayout";
 import { useAuth } from "@/auth/AuthContext";
 import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
 
 // Code-splitting: cada página se carga bajo demanda (chunk por ruta).
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
@@ -27,7 +26,6 @@ const UsuariosPage = lazy(() => import("@/pages/UsuariosPage"));
 const RolesPage = lazy(() => import("@/pages/RolesPage"));
 const TarifaPage = lazy(() => import("@/pages/TarifaPage"));
 const AuditoriaPage = lazy(() => import("@/pages/AuditoriaPage"));
-const SesionesPage = lazy(() => import("@/pages/SesionesPage"));
 
 // Experiencias de usuario final
 const ClienteHome = lazy(() => import("@/pages/cliente/ClienteHome"));
@@ -56,7 +54,6 @@ function AdminRoutes() {
         <Route path="/incidencias" element={<IncidenciasPage />} />
         <Route path="/tracking" element={<TrackingPage />} />
         <Route path="/auditoria" element={<AuditoriaPage />} />
-        <Route path="/sesiones" element={<SesionesPage />} />
         <Route path="/reportes" element={<ReportesPage />} />
         <Route path="/pagos" element={<PagosPage />} />
         <Route path="/facturas" element={<FacturasPage />} />
@@ -116,7 +113,6 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/registro" element={<RegisterPage />} />
       <Route
         path="/*"
         element={

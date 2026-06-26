@@ -18,7 +18,6 @@ import type {
   Pago,
   Rol,
   Ruta,
-  TokenInfo,
   Usuario,
   Vehiculo,
 } from "@/types";
@@ -146,10 +145,6 @@ export const useAuditoria = (params?: Params) =>
   useQuery({ queryKey: ["auditoria", params], queryFn: () => get<Auditoria[]>("/auditoria/", params) });
 export const useAuditoriaResumen = (params?: Params) =>
   useQuery({ queryKey: ["auditoria-resumen", params], queryFn: () => get<any>("/auditoria/resumen", params) });
-
-// ---------------- Sesiones ----------------
-export const useSesiones = (params?: Params) =>
-  useQuery({ queryKey: ["sesiones", params], queryFn: () => get<TokenInfo[]>("/usuarios/me/sesiones", params) });
 
 // ---------------- Evidencias ----------------
 export const useEvidencias = (incidenciaId?: number) =>

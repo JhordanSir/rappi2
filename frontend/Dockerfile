@@ -7,9 +7,13 @@ COPY . .
 # Variables de build de Vite (se "hornean" en el bundle). Llegan como build-args
 # desde docker-compose; .env está dockerignored, por eso se pasan así.
 ARG VITE_API_URL=/api
-ARG VITE_GOOGLE_CLIENT_ID=
+ARG VITE_KEYCLOAK_URL=http://localhost:8080
+ARG VITE_KEYCLOAK_REALM=rappi2
+ARG VITE_KEYCLOAK_CLIENT_ID=rappi2-frontend
 ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
+ENV VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM
+ENV VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
 RUN npm run build
 
 # --- Serve ---
