@@ -23,6 +23,7 @@ from core.database import AsyncSessionLocal
 from core.mongo import connect_to_mongo, close_mongo_connection, ensure_all_indexes, get_database
 from core.security import hash_password
 from models.asignaciones import Asignacion
+from models.calificaciones import Calificacion
 from models.clientes import Cliente, ClienteDireccion
 from models.destinos import Destino
 from models.conductores import Conductor
@@ -90,8 +91,13 @@ def resample(line, n):
     return [line[round(i * step)] for i in range(n)]
 
 
-async def road_points(o, d):
-    """Geometría real por calles (OSRM) como lista de (lat, lon). Fallback: línea recta."""
+async def road_points(o, d, use_osrm=True):
+    """Geometría real por calles (OSRM) como lista de (lat, lon). Fallback: línea recta.
+
+    Con use_osrm=False se omite la red y se devuelve una polilínea recta sintética:
+    la generación masiva crea decenas de rutas y no debe depender de OSRM."""
+    if not use_osrm:
+        return [punto(o, d, k / 13) for k in range(14)]
     url = f"https://router.project-osrm.org/route/v1/driving/{o[1]},{o[0]};{d[1]},{d[0]}?overview=full&geometries=geojson"
     try:
         async with httpx.AsyncClient(timeout=12) as client:
@@ -110,7 +116,7 @@ def _estado_parada(estado_destino: str) -> str:
 
 
 async def limpiar(db):
-    for model in [Incidencia, Parada, RutaPlanificada, Pago, Factura, Asignacion, Destino, Orden, ClienteDireccion, Conductor, Vehiculo, Cliente]:
+    for model in [Incidencia, Calificacion, Parada, RutaPlanificada, Pago, Factura, Asignacion, Destino, Orden, ClienteDireccion, Conductor, Vehiculo, Cliente]:
         await db.execute(delete(model))
     await db.execute(delete(Usuario).where(Usuario.email.like(f"%@{DEMO_DOMAIN}")))
     await db.commit()
@@ -151,6 +157,9 @@ async def main():
         nombres_cli = [
             "Distribuidora del Misti SAC", "Farmacias Characato EIRL", "Textiles Yanahuara SAC",
             "Picantería La Nueva Palomino", "Minimarket Cayma Express", "Importadora Chachani SRL",
+            "Comercial Selva Alegre SAC", "Botica San Camilo EIRL", "Ferretería El Misti SRL",
+            "Panadería La Chimba SAC", "Agroindustrias Majes SAC", "Calzados Paucarpata EIRL",
+            "Editorial Volcán SAC", "Lácteos Aján SRL", "Repuestos Tingo SAC", "Bazar Río Seco EIRL",
         ]
         clientes = []
         for i, nom in enumerate(nombres_cli):
@@ -161,6 +170,9 @@ async def main():
             db.add(ClienteDireccion(cliente_id=c.id, direccion=f"Av. {d1} {random.randint(100,1999)}", distrito=d1, ciudad="Arequipa", pais="PE", lat=c1[0], lon=c1[1], es_principal=True))
             d2, c2 = DISTRITOS[(i + 3) % len(DISTRITOS)]
             db.add(ClienteDireccion(cliente_id=c.id, direccion=f"Calle {d2} {random.randint(100,999)}", distrito=d2, ciudad="Arequipa", pais="PE", lat=c2[0], lon=c2[1]))
+            # Una tercera dirección (sucursal/depósito) para enriquecer el directorio del cliente.
+            d3, c3 = DISTRITOS[(i + 6) % len(DISTRITOS)]
+            db.add(ClienteDireccion(cliente_id=c.id, direccion=f"Urb. {d3} Mz. {random.randint(1,30)} Lt. {random.randint(1,20)}", distrito=d3, ciudad="Arequipa", pais="PE", lat=c3[0], lon=c3[1]))
             # Integridad (P2): todo cliente debe tener su usuario para iniciar sesion.
             db.add(Usuario(
                 username=f"cliente{i+1}",
@@ -177,15 +189,25 @@ async def main():
             ("AQP-101", "Camioneta", 1500, "Operativo"), ("AQP-202", "Furgón", 3000, "Operativo"),
             ("AQP-303", "Motocarga", 90, "Operativo"), ("AQP-404", "Camión", 8000, "Operativo"),
             ("AQP-505", "Motocarga", 80, "Operativo"), ("AQP-606", "Van", 2000, "Operativo"),
-            ("AQP-707", "Camión", 7000, "Mantenimiento"),
+            ("AQP-707", "Furgón", 3500, "Operativo"), ("AQP-808", "Camioneta", 1400, "Operativo"),
+            ("AQP-909", "Motocarga", 85, "Operativo"), ("AQP-110", "Van", 2200, "Operativo"),
+            ("AQP-220", "Camión", 7500, "Operativo"), ("AQP-330", "Motocarga", 95, "Operativo"),
+            ("AQP-440", "Furgón", 3200, "Operativo"), ("AQP-550", "Camioneta", 1600, "Operativo"),
+            ("AQP-660", "Camión", 6800, "Mantenimiento"), ("AQP-770", "Van", 2100, "Inactivo"),
         ]
         for placa, tipo, cap, est in vehiculos_def:
             db.add(Vehiculo(placa=placa, tipo=tipo, capacidad_kg=cap, estado=est, activo=(est != "Inactivo")))
         await db.commit()
+        placas_operativas = [v[0] for v in vehiculos_def if v[3] == "Operativo"]
 
         # ---- Conductores (usuario + perfil) ----
-        nombres_cond = ["Juan Mamani Quispe", "Rosa Huamaní Ccama", "Carlos Apaza Flores", "Lucía Choque Mamani", "Pedro Cáceres Zúñiga", "Ana Ticona Larico"]
-        placas_op = ["AQP-101", "AQP-202", "AQP-303", "AQP-404", "AQP-505", "AQP-606"]
+        nombres_cond = [
+            "Juan Mamani Quispe", "Rosa Huamaní Ccama", "Carlos Apaza Flores", "Lucía Choque Mamani",
+            "Pedro Cáceres Zúñiga", "Ana Ticona Larico", "Miguel Condori Vilca", "Elena Quispe Ramos",
+            "Jorge Salas Pinto", "Sofía Huanca Pari", "Raúl Ccahua Mendoza", "Diana Sucari Vargas",
+            "Néstor Pacsi Llaza",
+        ]
+        placas_op = placas_operativas  # una placa operativa por conductor
         conductores = []
         for i, nom in enumerate(nombres_cond):
             u = Usuario(username=f"conductor{i+1}", email=f"conductor{i+1}@{DEMO_DOMAIN}", password_hash=hash_password("demo123"), rol_id=roles["Conductor"].id)
@@ -232,8 +254,8 @@ async def main():
                 destinos.append(d)
             return o, (co, do), destinos
 
-        async def crear_ruta(o, origen_latlon, do, destinos, origen_estado, fecha_inicio=None, fecha_fin=None, corredor_geo=False):
-            road = await road_points(origen_latlon, (float(destinos[-1].lat), float(destinos[-1].lon)))
+        async def crear_ruta(o, origen_latlon, do, destinos, origen_estado, fecha_inicio=None, fecha_fin=None, corredor_geo=False, use_osrm=True):
+            road = await road_points(origen_latlon, (float(destinos[-1].lat), float(destinos[-1].lon)), use_osrm=use_osrm)
             geom = {"type": "LineString", "coordinates": [[p[1], p[0]] for p in road]}
             ruta = RutaPlanificada(orden_id=o.id, distancia_km=round(random.uniform(3, 16), 2), tiempo_estimado=timedelta(minutes=random.randint(15, 55)), geometria=geom)
             ruta.paradas.append(Parada(orden_id=o.id, direccion=o.direccion_origen, distrito=do, lat=origen_latlon[0], lon=origen_latlon[1], secuencia=1, estado=origen_estado, fecha_paso=fecha_inicio))
@@ -359,6 +381,111 @@ async def main():
             ping_docs.append(_ping(gasg, gcond, p, now - timedelta(minutes=(8 - k) * 2), 15 + random.random() * 20))
         await db.commit()
 
+        # ====== GENERACIÓN MASIVA: volumen en todas las tablas para explorar a fondo ======
+        # Rutas SINTÉTICAS (use_osrm=False): no se golpea la red con decenas de órdenes.
+        comentarios_pos = [
+            "Entrega rápida y el conductor muy amable.", "Todo perfecto, paquete en buen estado.",
+            "Excelente servicio, llegó antes de lo previsto.", "Muy buena comunicación durante el envío.",
+            "El conductor fue muy cordial. Recomendado.", "Sin novedades, todo en orden.",
+        ]
+        comentarios_neg = [
+            "Llegó con retraso pero el paquete estaba bien.", "El conductor tardó en ubicar la dirección.",
+            "Esperaba un poco más de cuidado con el paquete.",
+        ]
+        MAX_ACTIVOS = 4            # tope de órdenes activas (EnCurso/Asignada) → deja conductores disponibles
+        bulk_activos = 0
+        recientes_forzadas = 3     # primeras finalizadas con fecha muy reciente → KPIs de últimas 24h
+
+        estados_bulk = (
+            ["Entregado"] * 30 + ["En Tránsito"] * 4 + ["En Proceso"] * 4 +
+            ["Pendiente"] * 12 + ["Pendiente de Pago"] * 5 + ["Cancelado"] * 6
+        )
+        random.shuffle(estados_bulk)
+        niveles_bulk = ["estandar", "estandar", "estandar", "express", "urgente"]
+
+        for estado in estados_bulk:
+            ci = random.randrange(len(clientes))
+            multi = estado in ("Entregado", "En Tránsito", "En Proceso", "Pendiente")
+            ndest = random.choices([1, 2, 3], weights=[6, 3, 2])[0] if multi else 1
+            dlist = dl(ndest, random.randrange(len(DISTRITOS)))
+            nivel = random.choice(niveles_bulk)
+            ajuste = random.choice([None, None, None, -10, -5, 15, 25])
+            prog_h = random.choice([None, None, None, 6, 12, 24, 48]) if estado in ("Pendiente", "Pendiente de Pago") else None
+
+            if estado == "Entregado":
+                parcial = ndest > 1 and random.random() < 0.18
+                dest_estados = (["Entregado"] * (ndest - 1) + ["Fallida"]) if parcial else ["Entregado"] * ndest
+            else:
+                dest_estados = None
+
+            o, (co, do), destinos = await crear_orden(ci, estado, dlist, nivel, ajuste, prog_h, dest_estados)
+            # Distribuir la creación en ~90 días → series temporales ricas (ventas por día/mes).
+            dias_atras = random.randint(0, 90)
+            o.fecha_creacion = now - timedelta(days=dias_atras, hours=random.randint(0, 23), minutes=random.randint(0, 59))
+            origen_latlon = (co[0], co[1])
+
+            # --- Estados sin conductor ---
+            if estado == "Pendiente":
+                continue
+            if estado == "Pendiente de Pago":
+                db.add(Pago(orden_id=o.id, monto=o.total, estado="Pendiente", metodo="mercadopago", proveedor="mercadopago", fecha_pago=o.fecha_creacion))
+                continue
+            if estado == "Cancelado":
+                if random.random() < 0.4:
+                    db.add(Pago(orden_id=o.id, monto=o.total, estado="Fallido", referencia_banco=f"REF-{random.randint(1000,9999)}", fecha_pago=o.fecha_creacion))
+                continue
+
+            # --- Estados con conductor (Entregado / En Tránsito / En Proceso) ---
+            if estado in ("En Tránsito", "En Proceso"):
+                disponibles = [c for c in conductores if c.disponibilidad == "Disponible"]
+                if bulk_activos >= MAX_ACTIVOS or not disponibles:
+                    o.estado = "Pendiente"   # sin presupuesto de actividad → queda pendiente
+                    continue
+                cond = random.choice(disponibles)
+            else:
+                cond = random.choice(conductores)  # finalizada (histórica): no cambia disponibilidad
+
+            asg = Asignacion(orden_id=o.id, conductor_id=cond.id, vehiculo_placa=cond.vehiculo_placa)
+            asg.ordenes = [o]
+            db.add(asg)
+            await db.flush()
+
+            if estado == "Entregado":
+                if recientes_forzadas > 0:
+                    fin = now - timedelta(hours=random.randint(1, 20))
+                    recientes_forzadas -= 1
+                else:
+                    fin = now - timedelta(days=dias_atras, hours=random.randint(0, 12))
+                ini = fin - timedelta(minutes=random.randint(25, 80))
+                asg.estado, asg.fecha_inicio, asg.fecha_fin = "Finalizada", ini, fin
+                asg.entrega_receptor = random.choice(RECEPTORES)
+                ruta, road = await crear_ruta(o, origen_latlon, do, destinos, "Visitada", ini, fin, use_osrm=False)
+                if random.random() < 0.45:  # solo una muestra lleva pings (controla el volumen en Mongo)
+                    for k, p in enumerate(resample(road, 10)):
+                        ping_docs.append(_ping(asg, cond, p, ini + timedelta(minutes=k * 5), 18 + random.random() * 20))
+                if len(evid_specs) < 22:  # cap de evidencias (suben imágenes reales a GridFS)
+                    add_evid(asg, destinos, cond.usuario_id, fin)
+                pago_fecha = min(fin + timedelta(minutes=random.randint(2, 90)), now)
+                db.add(Pago(orden_id=o.id, monto=o.total, estado="Pagado", referencia_banco=f"OP-{random.randint(10000,99999)}", metodo="mercadopago", proveedor="mercadopago", fecha_pago=pago_fecha))
+                db.add(Factura(orden_id=o.id, ruc="20456789012", monto=o.total, url="https://comprobantes.demo/factura.pdf", fecha=pago_fecha))
+            else:
+                bulk_activos += 1
+                cond.disponibilidad = "Ocupado"
+                if estado == "En Tránsito":
+                    asg.estado, asg.fecha_inicio = "EnCurso", now - timedelta(minutes=random.randint(8, 45))
+                    ruta, road = await crear_ruta(o, origen_latlon, do, destinos, "Visitada", asg.fecha_inicio, None, corredor_geo=True, use_osrm=False)
+                    pts = resample(road[: max(2, int(len(road) * 0.65))], 10)
+                    n = len(pts)
+                    for k, p in enumerate(pts):
+                        ping_docs.append(_ping(asg, cond, p, now - timedelta(minutes=(n - 1 - k) * 2.2), 12 + random.random() * 28))
+                    if random.random() < 0.3:
+                        db.add(Incidencia(asignacion_id=asg.id, tipo=random.choice(["Retraso por tráfico", "Clima adverso"]), severidad=random.randint(2, 3), origen="chofer", notas="Reportado por el conductor en ruta.", fecha=now - timedelta(minutes=random.randint(2, 25))))
+                else:  # En Proceso → Asignada (aún sin iniciar)
+                    asg.estado = "Asignada"
+                    await crear_ruta(o, origen_latlon, do, destinos, "Pendiente", None, None, use_osrm=False)
+
+        await db.commit()
+
         # ---- Incidencias variadas (chofer / admin), además de las automáticas ya creadas ----
         asgs = (await db.execute(select(Asignacion))).scalars().all()
         finalizadas = [a for a in asgs if a.estado == "Finalizada"]
@@ -378,6 +505,28 @@ async def main():
             db.add(Pago(orden_id=o.id, monto=round(random.uniform(40, 300), 2), estado=estado_pago, referencia_banco=f"REF-{random.randint(1000,9999)}", fecha_pago=now - timedelta(days=random.randint(0, 29), hours=random.randint(0, 23))))
         await db.commit()
 
+        # ---- Calificaciones: el cliente puntúa la entrega/conductor de las órdenes entregadas ----
+        entregadas = (
+            await db.execute(
+                select(Orden.id, Orden.cliente_id, Asignacion.conductor_id, Asignacion.fecha_fin)
+                .join(Asignacion, Asignacion.orden_id == Orden.id)
+                .where(Orden.estado == "Entregado", Asignacion.estado == "Finalizada")
+            )
+        ).all()
+        total_calificaciones = 0
+        for oid, cli_id, cond_id, ffin in entregadas:
+            if random.random() >= 0.82:  # no todos los clientes califican
+                continue
+            puntaje = random.choices([5, 4, 3, 2, 1], weights=[50, 30, 12, 5, 3])[0]
+            if puntaje >= 4:
+                comentario = random.choice(comentarios_pos) if random.random() < 0.7 else None
+            else:
+                comentario = random.choice(comentarios_neg)
+            fecha = min((ffin or now) + timedelta(hours=random.randint(1, 48)), now)
+            db.add(Calificacion(orden_id=oid, conductor_id=cond_id, cliente_id=cli_id, puntaje=puntaje, comentario=comentario, fecha=fecha))
+            total_calificaciones += 1
+        await db.commit()
+
         admin = (await db.execute(select(Usuario).where(Usuario.username == "admin"))).scalar_one_or_none()
         admin_id = admin.id if admin else None
         total_ordenes = len(ordenes_all)
@@ -394,6 +543,11 @@ async def main():
         {"ruta_id": None, "orden_id": None, "tipo": "prohibida", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["Cercado"], 0.006)]}, "tolerance_m": None, "activa": True, "created_at": now},
         # Plaqueo: centro histórico (Plaza de Armas / Cercado). Zona editable por el admin.
         {"ruta_id": None, "orden_id": None, "tipo": "restriccion_vehicular", "geometry": {"type": "Polygon", "coordinates": [zona((-16.3988, -71.5369), 0.006)]}, "tolerance_m": None, "activa": True, "created_at": now},
+        {"ruta_id": None, "orden_id": None, "tipo": "zona_entrega", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["Cerro Colorado"])]}, "tolerance_m": None, "activa": True, "created_at": now},
+        {"ruta_id": None, "orden_id": None, "tipo": "zona_entrega", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["Paucarpata"])]}, "tolerance_m": None, "activa": True, "created_at": now},
+        {"ruta_id": None, "orden_id": None, "tipo": "zona_entrega", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["Socabaya"])]}, "tolerance_m": None, "activa": True, "created_at": now},
+        # Geocerca inactiva (para probar el filtro activa/inactiva en el panel).
+        {"ruta_id": None, "orden_id": None, "tipo": "prohibida", "geometry": {"type": "Polygon", "coordinates": [zona(AQP["Miraflores"], 0.005)]}, "tolerance_m": None, "activa": False, "created_at": now},
     ]
     await mongo["geocercas"].insert_many(geo_docs)
 
@@ -426,11 +580,28 @@ async def main():
             {"destinatario_tipo": "usuario", "destinatario_id": admin_id, "tipo": "orden", "titulo": "Nueva orden pendiente", "mensaje": "Una orden está esperando asignación.", "metadata": {}, "leida": False, "fecha": now - timedelta(minutes=12)},
             {"destinatario_tipo": "usuario", "destinatario_id": admin_id, "tipo": "alerta", "titulo": "Conductor fuera de ruta", "mensaje": "La orden en tránsito salió de su geocerca.", "metadata": {}, "leida": False, "fecha": now - timedelta(minutes=4)},
             {"destinatario_tipo": "usuario", "destinatario_id": admin_id, "tipo": "pago", "titulo": "Pago confirmado", "mensaje": "Se registró un pago en las últimas horas.", "metadata": {}, "leida": True, "fecha": now - timedelta(hours=3)},
+            {"destinatario_tipo": "usuario", "destinatario_id": admin_id, "tipo": "incidencia", "titulo": "Incidencia de severidad alta", "mensaje": "Una entrega reportó una incidencia que requiere revisión.", "metadata": {}, "leida": False, "fecha": now - timedelta(hours=1)},
+            {"destinatario_tipo": "usuario", "destinatario_id": admin_id, "tipo": "sistema", "titulo": "Resumen diario disponible", "mensaje": "El reporte de operaciones del día ya está listo.", "metadata": {}, "leida": True, "fecha": now - timedelta(hours=8)},
         ]
-    notifs += [
-        {"destinatario_tipo": "cliente", "destinatario_id": clientes[0].id, "tipo": "envio", "titulo": "Tu pedido está en camino", "mensaje": "El conductor se dirige a tu dirección.", "metadata": {}, "leida": False, "fecha": now - timedelta(minutes=20)},
-        {"destinatario_tipo": "cliente", "destinatario_id": clientes[0].id, "tipo": "envio", "titulo": "Pedido entregado", "mensaje": "Gracias por tu compra.", "metadata": {}, "leida": True, "fecha": now - timedelta(days=1)},
+    # Campana del cliente: varias por cada cliente (mezcla leídas / pendientes).
+    cli_msgs = [
+        ("envio", "Tu pedido está en camino", "El conductor se dirige a tu dirección."),
+        ("envio", "Pedido entregado", "Gracias por tu compra."),
+        ("pago", "Pago confirmado", "Tu pago fue procesado correctamente."),
+        ("orden", "Pedido registrado", "Tu pedido fue creado y está pendiente de pago."),
     ]
+    for c in clientes:
+        for tipo, titulo, msg in random.sample(cli_msgs, k=random.randint(2, 4)):
+            notifs.append({"destinatario_tipo": "cliente", "destinatario_id": c.id, "tipo": tipo, "titulo": titulo, "mensaje": msg, "metadata": {}, "leida": random.random() < 0.5, "fecha": now - timedelta(hours=random.randint(1, 240))})
+    # App del conductor: notificaciones a su usuario.
+    cond_msgs = [
+        ("asignacion", "Nueva asignación", "Tienes una entrega asignada para hoy."),
+        ("ruta", "Ruta actualizada", "Se actualizó tu ruta de reparto."),
+        ("incidencia", "Incidencia registrada", "Tu reporte fue recibido por la central."),
+    ]
+    for cond in conductores:
+        for tipo, titulo, msg in random.sample(cond_msgs, k=random.randint(1, 3)):
+            notifs.append({"destinatario_tipo": "usuario", "destinatario_id": cond.usuario_id, "tipo": tipo, "titulo": titulo, "mensaje": msg, "metadata": {}, "leida": random.random() < 0.6, "fecha": now - timedelta(hours=random.randint(1, 180))})
     await mongo["notificaciones"].insert_many(notifs)
 
     await close_mongo_connection()
@@ -440,9 +611,11 @@ async def main():
     print("=" * 60)
     print(f"  Clientes: {len(clientes)} · Vehículos: {len(vehiculos_def)} · Conductores: {len(conductores)}")
     print(f"  Órdenes: {total_ordenes} (multidestino, run agrupado, parcial, programadas, ajustes)")
+    print(f"  Calificaciones: {total_calificaciones} · Notificaciones: {len(notifs)}")
     print(f"  Pings GPS: {len(ping_docs)} · Geocercas: {len(geo_docs)} · Evidencias (fotos): {len(evid_specs)}")
+    print("  Usuarios: admin/admin123 · cliente1..%d/demo123 · conductor1..%d/demo123" % (len(clientes), len(conductores)))
     print("  Para probar:")
-    print("    - admin / admin123        → órdenes multidestino, evidencia, run agrupado, incidencias")
+    print("    - admin / admin123        → reportes con volumen (ventas, ratings, SLA), evidencia, run agrupado")
     print("    - conductor6 / demo123    → RUN AGRUPADO (2 órdenes) en curso, entregar/no entregar por destino")
     print("    - conductor2 / demo123    → entrega en curso con multidestino")
     print("    - cliente1 / demo123      → sus pedidos (incluye multidestino) y prueba de entrega")
