@@ -7,6 +7,8 @@ interface AuthState {
   user: Usuario | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  /** Inicia sesión con el ID token (credential) de Google Identity Services. */
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Comprueba permiso recurso:accion contra los permisos del rol (soporta comodín *). */
   can: (recurso: string, accion: string) => boolean;
@@ -56,6 +58,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(me.data);
   };
 
+  const loginWithGoogle = async (credential: string) => {
+    const { data } = await api.post<TokenPair>("/auth/google", { credential });
+    tokenStore.set(data);
+    const me = await api.get<Usuario>("/auth/me");
+    setUser(me.data);
+  };
+
   const logout = async () => {
     const refresh = tokenStore.refresh;
     try {
@@ -74,7 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const value = useMemo<AuthState>(() => ({ user, loading, login, logout, can }), [user, loading]);
+  const value = useMemo<AuthState>(
+    () => ({ user, loading, login, loginWithGoogle, logout, can }),
+    [user, loading],
+  );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }

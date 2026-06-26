@@ -1,5 +1,5 @@
 """Crea roles base, permisos comodin para Admin, los permisos base de cada rol
-(Despachador / Conductor / Cliente) y el usuario admin/admin123.
+(Conductor / Cliente) y el usuario admin/admin123.
 
 Es idempotente: solo agrega lo que falte (nunca borra permisos), por lo que es
 seguro ejecutarlo en cada arranque de produccion."""
@@ -13,27 +13,12 @@ from core.security import hash_password
 from models.roles import Permiso, Rol
 from models.usuarios import Usuario
 
-ROLES = ["Admin", "Despachador", "Conductor", "Cliente"]
+ROLES = ["Admin", "Conductor", "Cliente"]
 
 # Permisos base por rol (recurso, accion). La propiedad de fila (ownership) se
 # impone aparte en los endpoints: el cliente solo opera SUS datos, el conductor
 # solo SUS asignaciones. Estos permisos solo habilitan la capacidad.
 BASE_PERMISOS: dict[str, list[tuple[str, str]]] = {
-    "Despachador": (
-        [
-            (r, a)
-            for r in [
-                "ordenes", "asignaciones", "rutas", "tracking", "clientes",
-                "conductores", "vehiculos", "incidencias", "geocercas",
-            ]
-            for a in ["read", "write"]
-        ]
-        + [
-            ("reportes", "read"), ("pagos", "read"), ("facturas", "read"),
-            ("entregas", "read"), ("calificaciones", "read"), ("notificaciones", "read"),
-            ("tarifa", "read"),
-        ]
-    ),
     "Conductor": [
         ("tracking", "read"), ("tracking", "write"),
         ("ordenes", "read"),

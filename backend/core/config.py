@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     MP_PUBLIC_KEY: str = ""
     MP_WEBHOOK_SECRET: str = ""
     MONEDA: str = "PEN"
+
+    # Google OAuth (Sign in with Google). Client ID de tipo "Web application";
+    # es el mismo valor que usa el frontend (VITE_GOOGLE_CLIENT_ID). Si está vacío,
+    # el endpoint /auth/google responde 503 (login con Google deshabilitado).
+    GOOGLE_CLIENT_ID: str = ""
+    # Asignación de rol por email para usuarios que entran con Google. Los emails
+    # NO listados se crean como "Cliente". Formato: "correo:Rol,correo:Rol".
+    # Ej: "jefe@org.com:Admin,chofer@org.com:Conductor". Es una allowlist controlada
+    # por el operador (no por el usuario final).
+    GOOGLE_ROLE_MAP: str = ""
     # Base pública del backend (para notification_url del webhook) y del frontend
     # (para las back_urls de retorno tras pagar).
     PUBLIC_BASE_URL: str = "http://localhost:8000"
@@ -48,6 +58,25 @@ class Settings(BaseSettings):
     @property
     def mp_enabled(self) -> bool:
         return bool(self.MP_ACCESS_TOKEN)
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.GOOGLE_CLIENT_ID)
+
+    @property
+    def google_role_map(self) -> dict[str, str]:
+        """Parsea GOOGLE_ROLE_MAP en {email_minúsculas: NombreRol}."""
+        mapping: dict[str, str] = {}
+        for par in self.GOOGLE_ROLE_MAP.split(","):
+            par = par.strip()
+            if not par or ":" not in par:
+                continue
+            email, rol = par.split(":", 1)
+            email = email.strip().lower()
+            rol = rol.strip().capitalize()  # admin->Admin, conductor->Conductor
+            if email and rol:
+                mapping[email] = rol
+        return mapping
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

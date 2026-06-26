@@ -38,6 +38,7 @@ export interface Usuario {
   activo: boolean;
   fecha_registro: string;
   rol?: Rol | null;
+  avatar_url?: string | null;
 }
 
 // ---- Clientes ----

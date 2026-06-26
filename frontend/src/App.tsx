@@ -101,11 +101,13 @@ function ConductorRoutes() {
   );
 }
 
-/** Enruta a la experiencia correspondiente según el rol del usuario autenticado. */
+/** Enruta a la experiencia correspondiente según el rol del usuario autenticado.
+ *  Se decide SOLO por el nombre del rol: así, al promover un Cliente a Admin, pasa
+ *  al panel aunque conserve su `cliente_id`. */
 function RoleApp() {
   const { user } = useAuth();
   const rol = user?.rol?.nombre;
-  if (rol === "Cliente" || user?.cliente_id != null) return <ClienteRoutes />;
+  if (rol === "Cliente") return <ClienteRoutes />;
   if (rol === "Conductor") return <ConductorRoutes />;
   return <AdminRoutes />;
 }

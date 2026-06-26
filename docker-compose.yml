@@ -53,6 +53,8 @@ services:
       - SECRET_KEY=${SECRET_KEY:-change_me_to_a_random_64_char_string_in_production}
       - ORS_API_KEY=${ORS_API_KEY:-}
       - REDIS_URL=redis://redis:6379/0
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_ROLE_MAP=${GOOGLE_ROLE_MAP:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,7 +65,11 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     ports:
       - "5173:80"
     depends_on:

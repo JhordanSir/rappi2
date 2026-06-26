@@ -10,11 +10,17 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(150), unique=True, nullable=False, index=True)
-    password_hash = Column(Text, nullable=False)
+    # Nullable: los usuarios solo-Google no tienen contraseña local.
+    password_hash = Column(Text, nullable=True)
     rol_id = Column(Integer, ForeignKey("roles.id", ondelete="RESTRICT"), nullable=False)
     cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="SET NULL"), unique=True, nullable=True)
     activo = Column(Boolean, default=True, nullable=False)
     fecha_registro = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    # Identidad de Google (OAuth). google_sub es el id estable del usuario en Google
+    # y la clave de vinculación principal; auth_provider distingue local/google.
+    google_sub = Column(String(255), unique=True, nullable=True, index=True)
+    auth_provider = Column(String(20), default="local", nullable=False)
+    avatar_url = Column(Text, nullable=True)
 
     rol = relationship("Rol", back_populates="usuarios", lazy="joined")
     cliente = relationship("Cliente", back_populates="usuario", uselist=False)

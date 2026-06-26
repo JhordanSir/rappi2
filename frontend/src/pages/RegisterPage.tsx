@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Package } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "@/auth/AuthContext";
+import { GoogleSignInButton } from "@/auth/GoogleSignInButton";
 import { api, apiError } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
@@ -64,6 +65,7 @@ export default function RegisterPage() {
           <Button type="submit" loading={loading} size="lg" className="w-full">
             Crear cuenta
           </Button>
+          <GoogleSignInButton />
           <p className="text-center text-sm text-stone-500">
             ¿Ya tienes cuenta?{" "}
             <Link to="/login" className="font-semibold text-brand-700 hover:underline">

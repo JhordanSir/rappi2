@@ -30,5 +30,6 @@ class UsuarioResponse(UsuarioBase):
     activo: bool
     fecha_registro: datetime
     rol: Optional[RolResponse] = None
+    avatar_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

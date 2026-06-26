@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Truck, Navigation, ShieldCheck } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "@/auth/AuthContext";
+import { GoogleSignInButton } from "@/auth/GoogleSignInButton";
 import { apiError } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
@@ -102,6 +103,8 @@ export default function LoginPage() {
               Entrar
             </Button>
           </form>
+
+          <GoogleSignInButton />
 
           <div className="mt-6 rounded-xl border border-sillar-300 bg-white p-3 text-center text-xs text-stone-500">
             Demo: <span className="font-semibold text-stone-700">admin</span> /{" "}

@@ -59,10 +59,6 @@ RECEPTORES = ["Sr. Gutiérrez", "Sra. Mamani", "Recepción", "Portería", "Farma
 PESOS = [3.0, 8.0, 1.5, 12.0, 5.0, 0.8, 20.0]
 
 PERMS = {
-    "Despachador": (
-        [(r, a) for r in ["ordenes", "asignaciones", "rutas", "tracking", "clientes", "conductores", "vehiculos", "incidencias", "geocercas"] for a in ["read", "write"]]
-        + [("reportes", "read"), ("pagos", "read"), ("facturas", "read"), ("entregas", "read"), ("calificaciones", "read"), ("notificaciones", "read"), ("tarifa", "read")]
-    ),
     "Conductor": [("tracking", "read"), ("tracking", "write"), ("ordenes", "read"), ("asignaciones", "read"), ("asignaciones", "write"), ("rutas", "read"), ("rutas", "write"), ("incidencias", "read"), ("incidencias", "write"), ("entregas", "read"), ("entregas", "write"), ("conductores", "read"), ("calificaciones", "read"), ("notificaciones", "read")],
     "Cliente": [("ordenes", "read"), ("ordenes", "write"), ("tracking", "read"), ("pagos", "read"), ("pagos", "write"), ("clientes", "read"), ("clientes", "write"), ("incidencias", "read"), ("incidencias", "write"), ("calificaciones", "read"), ("calificaciones", "write"), ("facturas", "read"), ("notificaciones", "read")],
 }
@@ -141,7 +137,7 @@ async def main():
         await limpiar(db)
 
         roles = {r.nombre: r for r in (await db.execute(select(Rol))).scalars().all()}
-        for nombre in ["Despachador", "Conductor", "Cliente"]:
+        for nombre in ["Conductor", "Cliente"]:
             if nombre not in roles:
                 r = Rol(nombre=nombre)
                 db.add(r)
@@ -179,8 +175,7 @@ async def main():
             db.add(Vehiculo(placa=placa, tipo=tipo, capacidad_kg=cap, estado=est, activo=(est != "Inactivo")))
         await db.commit()
 
-        # ---- Usuarios staff ----
-        db.add(Usuario(username="despachador", email=f"despachador@{DEMO_DOMAIN}", password_hash=hash_password("demo123"), rol_id=roles["Despachador"].id))
+        # ---- Usuario cliente demo ----
         cliente_user = Usuario(username="cliente", email=f"cuenta.cliente@{DEMO_DOMAIN}", password_hash=hash_password("demo123"), rol_id=roles["Cliente"].id, cliente_id=clientes[0].id)
         db.add(cliente_user)
         await db.flush()

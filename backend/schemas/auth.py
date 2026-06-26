@@ -23,6 +23,11 @@ class TokenPair(BaseModel):
     expires_in: int
 
 
+class GoogleLoginRequest(BaseModel):
+    # ID token (credential) emitido por Google Identity Services en el frontend.
+    credential: str
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

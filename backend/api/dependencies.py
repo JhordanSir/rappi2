@@ -22,7 +22,7 @@ from models.roles import Permiso
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 
 # Roles internos con visibilidad total (no se les aplica filtro de fila).
-STAFF_ROLES = {"Admin", "Despachador"}
+STAFF_ROLES = {"Admin"}
 
 _PERMISO_CACHE: dict[int, tuple[float, list[tuple[str, str]]]] = {}
 _PERMISO_TTL_SECONDS = 60
