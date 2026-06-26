@@ -10,5 +10,10 @@ services:
       - "27017:27017"
 
   api:
+    # Igual que el comando base, pero además:
+    #  - seed_if_empty: puebla datos demo en el primer arranque (idempotente; no
+    #    pisa lo que crees al experimentar). Forzar recarga: docker compose exec api python -m scripts.seed_demo
+    #  - uvicorn --reload: recarga en caliente al editar el código montado.
+    command: sh -c "alembic upgrade head && python -m scripts.seed_admin && python -m scripts.seed_if_empty && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --reload"
     volumes:
       - ./backend:/app

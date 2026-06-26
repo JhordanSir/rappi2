@@ -47,12 +47,31 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Conexiones (se arman desde las partes del .env)
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rappi2}
       - MONGO_URL=mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-admin}@mongodb:27017/
       - MONGO_DB=${MONGO_DB:-rappi2_mongo}
-      - SECRET_KEY=${SECRET_KEY:-change_me_to_a_random_64_char_string_in_production}
-      - ORS_API_KEY=${ORS_API_KEY:-}
       - REDIS_URL=redis://redis:6379/0
+      # Seguridad / sesiones
+      - SECRET_KEY=${SECRET_KEY:-change_me_to_a_random_64_char_string_in_production}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      - AUDIT_ENABLED=${AUDIT_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      # URLs públicas (webhook de pago + back_urls de retorno)
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+      - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:-http://localhost:5173}
+      # Geocoding / ruteo
+      - ORS_API_KEY=${ORS_API_KEY:-}
+      - GEOCODING_ENABLED=${GEOCODING_ENABLED:-true}
+      - RUTA_AUTOGENERAR=${RUTA_AUTOGENERAR:-true}
+      - GPS_TRACKING_RETENCION_DIAS=${GPS_TRACKING_RETENCION_DIAS:-30}
+      # MercadoPago (vacío = modo simulado)
+      - MP_ACCESS_TOKEN=${MP_ACCESS_TOKEN:-}
+      - MP_PUBLIC_KEY=${MP_PUBLIC_KEY:-}
+      - MP_WEBHOOK_SECRET=${MP_WEBHOOK_SECRET:-}
+      - MONEDA=${MONEDA:-PEN}
+      # Google OAuth
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_ROLE_MAP=${GOOGLE_ROLE_MAP:-}
     depends_on:

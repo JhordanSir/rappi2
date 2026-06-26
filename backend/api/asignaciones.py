@@ -23,7 +23,7 @@ from models.conductores import Conductor
 from models.destinos import Destino
 from models.incidencias import Incidencia
 from models.ordenes import Orden
-from models.rutas import Parada, RutaPlanificada
+from models.rutas import Parada
 from models.usuarios import Usuario
 from models.vehiculos import Vehiculo
 from schemas.asignaciones import (
