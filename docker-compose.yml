@@ -41,10 +41,22 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Keycloak: proveedor de identidad (OIDC). Importa el realm `rappi2` al arrancar.
-  # En dev usa el modo `start-dev` (H2 en memoria). Consola: http://localhost:8080
-  # (admin / ${KEYCLOAK_ADMIN_PASSWORD}). Para producción: backend Postgres + KC_HOSTNAME/TLS
-  # (ver docker-compose.prod.yml).
+  # Genera el realm a importar a partir de la plantilla, sustituyendo el dominio público
+  # del frontend (FRONTEND_BASE_URL) en los redirectUris/webOrigins. Se hace aquí porque
+  # la sustitución nativa de variables en el import de Keycloak no es fiable. Es un
+  # contenedor de un solo uso: escribe el realm en el volumen `keycloak_import` y termina.
+  keycloak-config:
+    image: alpine:3
+    command: ["sh", "-c", "sed 's#__FRONTEND_URL__#${FRONTEND_BASE_URL:-http://localhost:5173}#g' /template/realm-rappi2.template.json > /import/realm-rappi2.json"]
+    volumes:
+      - ./keycloak/realm-rappi2.template.json:/template/realm-rappi2.template.json:ro
+      - keycloak_import:/import
+    restart: "no"
+
+  # Keycloak: proveedor de identidad (OIDC). Importa el realm `rappi2` (generado por
+  # keycloak-config) al arrancar. En dev usa `start-dev`. Consola: http://localhost:8080
+  # (admin / ${KEYCLOAK_ADMIN_PASSWORD}). En prod, KC_HOSTNAME = dominio público + TLS
+  # vía el proxy (Traefik/Dokploy).
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
     command: ["start-dev", "--import-realm"]
@@ -53,10 +65,19 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
+      # URL pública con la que el navegador ve a Keycloak (issuer del token y base de
+      # todos los redirects). En prod = el dominio público; en dev = localhost:8080.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      # Detrás de un proxy que termina TLS (Traefik/Dokploy): confía en X-Forwarded-*
+      # para generar URLs https correctas en vez de http.
+      KC_PROXY_HEADERS: xforwarded
     volumes:
-      - ./keycloak/realm-rappi2.json:/opt/keycloak/data/import/realm-rappi2.json:ro
+      - keycloak_import:/opt/keycloak/data/import:ro
     ports:
       - "8080:8080"
+    depends_on:
+      keycloak-config:
+        condition: service_completed_successfully
     networks:
       - default
       - dokploy-network
@@ -140,3 +161,4 @@ networks:
 volumes:
   postgres_data:
   mongodb_data:
+  keycloak_import:
