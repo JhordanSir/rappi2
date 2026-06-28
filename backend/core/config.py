@@ -1,7 +1,8 @@
-from typing import List
+import json
+from typing import Annotated, List
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -66,7 +67,10 @@ class Settings(BaseSettings):
     PUBLIC_BASE_URL: str = "http://localhost:8000"
     FRONTEND_BASE_URL: str = "http://localhost:5173"
 
-    CORS_ORIGINS: List[str] = ["*"]
+    # NoDecode evita que pydantic-settings haga json.loads() sobre el valor del entorno
+    # antes de validarlo; así `_split_origins` recibe el texto crudo y aceptamos tanto
+    # JSON (["a","b"]) como coma-separado (a,b) o un solo origen (https://app...).
+    CORS_ORIGINS: Annotated[List[str], NoDecode] = ["*"]
 
     @property
     def mp_enabled(self) -> bool:
@@ -103,7 +107,10 @@ class Settings(BaseSettings):
     @classmethod
     def _split_origins(cls, v):
         if isinstance(v, str):
-            return [o.strip() for o in v.split(",") if o.strip()]
+            s = v.strip()
+            if s.startswith("["):  # formato JSON: ["https://a","https://b"]
+                return json.loads(s)
+            return [o.strip() for o in s.split(",") if o.strip()]
         return v
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
