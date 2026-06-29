@@ -67,6 +67,51 @@ def _dims_caben(paquete, caja) -> bool:
     return all(float(p) <= float(c) for p, c in zip(sorted(paquete), sorted(caja)))
 
 
+async def _peso_y_destinos(db: AsyncSession, orden_ids: list[int]):
+    """Peso cobrable total (kg) de TODOS los destinos de las órdenes + la lista de destinos.
+    Fuente única para la sugerencia y la validación de carga al asignar."""
+    tarifa = await obtener_tarifa(db)
+    destinos = (
+        await db.execute(select(Destino).where(Destino.orden_id.in_(orden_ids)))
+    ).scalars().all()
+    peso_total = round(float(sum(
+        peso_cobrable(
+            tarifa,
+            float(d.peso_kg) if d.peso_kg else None,
+            float(d.largo_cm) if d.largo_cm else None,
+            float(d.ancho_cm) if d.ancho_cm else None,
+            float(d.alto_cm) if d.alto_cm else None,
+        )
+        for d in destinos
+    )), 2)
+    return peso_total, destinos
+
+
+async def _validar_carga(db: AsyncSession, ordenes: list[Orden], vehiculo: Vehiculo) -> None:
+    """Bloquea (409) si la carga supera la capacidad en kg del vehículo o si algún paquete no
+    cabe en sus dimensiones útiles (cubicaje). Regla de negocio: no sobrecargar el vehículo."""
+    peso_total, destinos = await _peso_y_destinos(db, [o.id for o in ordenes])
+    cap = float(vehiculo.capacidad_kg) if vehiculo.capacidad_kg is not None else None
+    if cap is not None and peso_total > cap:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"El vehículo {vehiculo.placa} no soporta la carga: se requieren {peso_total} kg "
+                f"y su capacidad es {cap} kg. Elige un vehículo de mayor capacidad."
+            ),
+        )
+    caja = (vehiculo.largo_cm, vehiculo.ancho_cm, vehiculo.alto_cm)
+    for d in destinos:
+        if not _dims_caben((d.largo_cm, d.ancho_cm, d.alto_cm), caja):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"El paquete del destino #{d.id} no cabe en las dimensiones útiles del vehículo "
+                    f"{vehiculo.placa}. Elige un vehículo más grande."
+                ),
+            )
+
+
 async def _avisar_estado_orden(db: AsyncSession, orden: Orden | None) -> None:
     """Publica el cambio de estado de la orden a su cliente y a la operación."""
     if orden is None:
@@ -144,6 +189,10 @@ async def create_asignacion(
     if vehiculo.estado != "Operativo":
         raise HTTPException(status_code=400, detail=f"Vehiculo no operativo (actual: {vehiculo.estado})")
 
+    # Capacidad y cubicaje: no se permite sobrecargar el vehículo (peso) ni asignar paquetes
+    # que no caben físicamente (dimensiones). Bloquea con 409 si no cumple.
+    await _validar_carga(db, ordenes, vehiculo)
+
     # Plaqueo (centro histórico de Arequipa). Si un recojo/entrega cae DENTRO de la zona en
     # un día restringido, es inevitable y se bloquea; si solo la ruta cruza la zona pero los
     # puntos están fuera, se permite y la ruta se reconstruye rebordeando el centro.
@@ -198,6 +247,7 @@ async def sugerir_conductor(
     orden_id: int | None = None,
     orden_ids: list[int] | None = Query(None),
     limit: int = Query(5, le=20),
+    solo_aptos: bool = Query(False, description="Excluir candidatos restringidos o cuyo vehículo no soporta la carga"),
     db: AsyncSession = Depends(get_db),
     mongo_db = Depends(get_mongo_db),
     scope: UserScope = Depends(get_scope),
@@ -205,7 +255,8 @@ async def sugerir_conductor(
 ):
     """Sugiere los mejores conductores para una o varias órdenes a agrupar: disponibles,
     con vehículo operativo y CAPACIDAD suficiente, ordenados por capacidad suficiente,
-    cercanía al origen (última posición GPS) y rating."""
+    cercanía al origen (última posición GPS) y rating. Con `solo_aptos=true` excluye a los
+    que no califican (plaqueo restringido, sin capacidad o donde el paquete no cabe)."""
     _solo_staff(scope)
     ids = list(dict.fromkeys(orden_ids or ([orden_id] if orden_id else [])))
     if not ids:
@@ -218,18 +269,7 @@ async def sugerir_conductor(
         ordenes.append(o)
 
     # Peso requerido = suma del peso cobrable de todos los destinos de todas las órdenes.
-    tarifa = await obtener_tarifa(db)
-    destinos = (
-        await db.execute(select(Destino).where(Destino.orden_id.in_(ids)))
-    ).scalars().all()
-    peso_total = float(sum(
-        peso_cobrable(tarifa, float(d.peso_kg) if d.peso_kg else None,
-                      float(d.largo_cm) if d.largo_cm else None,
-                      float(d.ancho_cm) if d.ancho_cm else None,
-                      float(d.alto_cm) if d.alto_cm else None)
-        for d in destinos
-    ))
-    peso_total = round(peso_total, 2)
+    peso_total, destinos = await _peso_y_destinos(db, ids)
 
     rows = (
         await db.execute(
@@ -288,6 +328,8 @@ async def sugerir_conductor(
             )
         )
 
+    if solo_aptos:
+        sugerencias = [s for s in sugerencias if s.cabe and s.suficiente and not s.restringido_plaqueo]
     # No restringidos, que quepan y con capacidad primero; luego más cercano; sin posición al final; mejor rating.
     sugerencias.sort(key=lambda s: (s.restringido_plaqueo, not s.cabe, not s.suficiente, s.distancia_km is None, s.distancia_km or 0.0, -(s.rating or 0.0)))
     return sugerencias[:limit]

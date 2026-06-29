@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, CheckCircle2 } from "lucide-react";
+import { Plus, CheckCircle2, Eye } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useApiMutation, usePaginated } from "@/api/hooks";
@@ -12,6 +12,7 @@ import { DataTable } from "@/components/ui/Table";
 import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { DetailModal } from "@/components/ui/DetailModal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { Toolbar } from "@/components/ui/Toolbar";
 import { formatMoney, formatDate } from "@/lib/utils";
@@ -24,6 +25,7 @@ export default function PagosPage() {
   const [estado, setEstado] = useState("");
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [viewing, setViewing] = useState<Pago | null>(null);
   useEffect(() => setPage(0), [estado]);
   const { data, isLoading } = usePaginated<Pago>("pagos", "/pagos", {
     skip: page * PAGE_SIZE,
@@ -61,15 +63,36 @@ export default function PagosPage() {
             { header: "Estado", cell: (p) => <StatusBadge kind="pago" value={p.estado} /> },
             { header: "Referencia", cell: (p) => p.referencia_banco || "—" },
             { header: "Fecha", cell: (p) => <span className="text-slate-500">{formatDate(p.fecha_pago)}</span> },
-            { header: "", align: "right", cell: (p) => writable && p.estado === "Pendiente" && (
-              <Button size="sm" variant="success" onClick={() => patch.mutate(p.id, { onSuccess: () => toast.success("Pago confirmado"), onError: (e) => toast.error(apiError(e)) })}>
-                <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar
-              </Button>
+            { header: "", align: "right", cell: (p) => (
+              <div className="flex items-center justify-end gap-1">
+                <Button size="icon" variant="ghost" onClick={() => setViewing(p)}><Eye className="h-4 w-4" /></Button>
+                {writable && p.estado === "Pendiente" && (
+                  <Button size="sm" variant="success" onClick={() => patch.mutate(p.id, { onSuccess: () => toast.success("Pago confirmado"), onError: (e) => toast.error(apiError(e)) })}>
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar
+                  </Button>
+                )}
+              </div>
             )},
           ]}
         />
       </Card>
       {creating && <PagoForm onClose={() => setCreating(false)} />}
+      {viewing && (
+        <DetailModal
+          open
+          onClose={() => setViewing(null)}
+          title={`Pago #${viewing.id}`}
+          description="Detalle del pago"
+          rows={[
+            { label: "ID", value: <span className="font-mono">#{viewing.id}</span> },
+            { label: "Orden", value: <span className="font-mono">#{viewing.orden_id}</span> },
+            { label: "Monto", value: <span className="font-semibold">{formatMoney(viewing.monto)}</span> },
+            { label: "Estado", value: <StatusBadge kind="pago" value={viewing.estado} /> },
+            { label: "Referencia banco", value: viewing.referencia_banco },
+            { label: "Fecha", value: formatDate(viewing.fecha_pago) },
+          ]}
+        />
+      )}
     </div>
   );
 }

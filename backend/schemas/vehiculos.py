@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemas.common import EstadoVehiculo
 
@@ -23,6 +23,12 @@ class VehiculoBase(BaseModel):
 
 
 class VehiculoCreate(VehiculoBase):
+    # Dimensiones útiles de carga obligatorias al dar de alta (para validar el cubicaje en
+    # asignaciones). En edición (VehiculoUpdate) siguen siendo opcionales.
+    largo_cm: Decimal = Field(gt=0)
+    ancho_cm: Decimal = Field(gt=0)
+    alto_cm: Decimal = Field(gt=0)
+
     # El validador va solo en creación (no en VehiculoResponse) para no romper
     # la serialización de placas históricas que no cumplan el formato.
     @field_validator("placa")

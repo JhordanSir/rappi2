@@ -7,10 +7,18 @@ import { useRealtime } from "@/api/useRealtime";
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Colapsado (solo escritorio), persistido entre sesiones.
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar:collapsed") === "1");
+  const toggleCollapse = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem("sidebar:collapsed", next ? "1" : "0");
+      return next;
+    });
   useRealtime();
   return (
     <div className="flex h-screen overflow-hidden bg-sillar-100">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={collapsed} onToggleCollapse={toggleCollapse} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenu={() => setSidebarOpen(true)} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">

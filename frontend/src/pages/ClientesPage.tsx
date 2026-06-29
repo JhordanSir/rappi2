@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, MapPin, Pencil, Trash2, Building2, Star } from "lucide-react";
+import { Plus, MapPin, Pencil, Trash2, Eye, Building2, Star } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useClientes, useApiMutation } from "@/api/hooks";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { DetailModal } from "@/components/ui/DetailModal";
 import { Field, Input } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
@@ -24,6 +25,7 @@ export default function ClientesPage() {
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [creating, setCreating] = useState(false);
   const [direcciones, setDirecciones] = useState<Cliente | null>(null);
+  const [viewing, setViewing] = useState<Cliente | null>(null);
   const [toDelete, setToDelete] = useState<Cliente | null>(null);
 
   // Desactivar un cliente desactiva en cascada su usuario; refrescamos ambas listas (P6).
@@ -79,17 +81,23 @@ export default function ClientesPage() {
             {
               header: "",
               align: "right",
-              cell: (c) =>
-                writable && (
-                  <div className="flex justify-end gap-1">
+              cell: (c) => (
+                <div className="flex justify-end gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => setViewing(c)}>
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  {writable && (
                     <Button size="icon" variant="ghost" onClick={() => setEditing(c)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
+                  )}
+                  {writable && (
                     <Button size="icon" variant="ghost" onClick={() => setToDelete(c)} className="text-rose-500 hover:bg-rose-50">
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                  </div>
-                ),
+                  )}
+                </div>
+              ),
             },
           ]}
         />
@@ -99,6 +107,24 @@ export default function ClientesPage() {
         <ClienteForm cliente={editing} onClose={() => { setCreating(false); setEditing(null); }} />
       )}
       {direcciones && <DireccionesModal cliente={direcciones} onClose={() => setDirecciones(null)} writable={writable} />}
+      {viewing && (
+        <DetailModal
+          open
+          onClose={() => setViewing(null)}
+          title={viewing.nombre}
+          description="Ficha del cliente"
+          rows={[
+            { label: "Nombre", value: viewing.nombre },
+            { label: "Email", value: viewing.email },
+            { label: "Teléfono", value: viewing.telefono },
+            { label: "Documento (CC/RUC)", value: viewing.cc_id },
+            { label: "Estado", value: <Badge tone={viewing.activo ? "green" : "gray"}>{viewing.activo ? "Activo" : "Inactivo"}</Badge> },
+            { label: "Registro", value: formatDate(viewing.fecha_registro, false) },
+            { label: "Direcciones", value: `${viewing.direcciones.length}` },
+            { label: "Dirección principal", value: viewing.direcciones.find((d) => d.es_principal)?.direccion ?? viewing.direcciones[0]?.direccion, full: true },
+          ]}
+        />
+      )}
 
       <ConfirmModal
         open={!!toDelete}

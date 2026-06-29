@@ -6,6 +6,15 @@ from schemas.common import DisponibilidadConductor
 from schemas.vehiculos import VehiculoResponse
 
 
+class UsuarioRef(BaseModel):
+    """Resumen del usuario enlazado a un conductor (para trazabilidad en el panel)."""
+    id: int
+    username: str
+    email: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ConductorBase(BaseModel):
     nombre: str
     licencia: str
@@ -34,5 +43,6 @@ class ConductorResponse(ConductorBase):
     vehiculo_placa: Optional[str] = None
     activo: bool
     vehiculo: Optional[VehiculoResponse] = None
+    usuario: Optional[UsuarioRef] = None
 
     model_config = ConfigDict(from_attributes=True)

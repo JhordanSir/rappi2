@@ -165,6 +165,7 @@ export interface Conductor {
   vehiculo_placa?: string | null;
   activo: boolean;
   vehiculo?: Vehiculo | null;
+  usuario?: { id: number; username: string; email: string } | null;
 }
 
 // ---- Asignaciones ----

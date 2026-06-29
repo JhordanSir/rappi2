@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useUsuarios, useRoles, useApiMutation } from "@/api/hooks";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { DetailModal } from "@/components/ui/DetailModal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
@@ -21,6 +22,7 @@ export default function UsuariosPage() {
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Usuario | null>(null);
+  const [viewing, setViewing] = useState<Usuario | null>(null);
   const [toDelete, setToDelete] = useState<Usuario | null>(null);
   const { data, isLoading } = useUsuarios({ limit: 200 });
   const { data: roles } = useRoles();
@@ -60,16 +62,33 @@ export default function UsuariosPage() {
             { header: "Rol", cell: (u) => <Badge tone="indigo">{u.rol?.nombre ?? rolName(u.rol_id)}</Badge> },
             { header: "Estado", cell: (u) => <Badge tone={u.activo ? "green" : "gray"}>{u.activo ? "Activo" : "Inactivo"}</Badge> },
             { header: "Registro", cell: (u) => <span className="text-slate-500">{formatDate(u.fecha_registro, false)}</span> },
-            { header: "", align: "right", cell: (u) => writable && (
+            { header: "", align: "right", cell: (u) => (
               <div className="flex justify-end gap-1">
-                <Button size="icon" variant="ghost" onClick={() => setEditing(u)}><Pencil className="h-4 w-4" /></Button>
-                <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(u)}><Trash2 className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => setViewing(u)}><Eye className="h-4 w-4" /></Button>
+                {writable && <Button size="icon" variant="ghost" onClick={() => setEditing(u)}><Pencil className="h-4 w-4" /></Button>}
+                {writable && <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(u)}><Trash2 className="h-4 w-4" /></Button>}
               </div>
             )},
           ]}
         />
       </Card>
       {(creating || editing) && <UsuarioForm usuario={editing} roles={roles ?? []} onClose={() => { setCreating(false); setEditing(null); }} />}
+      {viewing && (
+        <DetailModal
+          open
+          onClose={() => setViewing(null)}
+          title={viewing.username}
+          description="Ficha del usuario"
+          rows={[
+            { label: "Usuario", value: viewing.username },
+            { label: "Email", value: viewing.email },
+            { label: "Rol", value: <Badge tone="indigo">{viewing.rol?.nombre ?? rolName(viewing.rol_id)}</Badge> },
+            { label: "Estado", value: <Badge tone={viewing.activo ? "green" : "gray"}>{viewing.activo ? "Activo" : "Inactivo"}</Badge> },
+            { label: "Registro", value: formatDate(viewing.fecha_registro, false) },
+            { label: "Cliente vinculado", value: viewing.cliente_id ? `#${viewing.cliente_id}` : null },
+          ]}
+        />
+      )}
       <ConfirmModal
         open={!!toDelete}
         title="Desactivar usuario"

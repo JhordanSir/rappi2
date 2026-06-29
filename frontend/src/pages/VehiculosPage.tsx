@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useVehiculos, useApiMutation } from "@/api/hooks";
@@ -11,10 +11,11 @@ import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/Table";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { DetailModal } from "@/components/ui/DetailModal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, formatDate } from "@/lib/utils";
 
 const ESTADOS: EstadoVehiculo[] = ["Operativo", "Mantenimiento", "Inactivo"];
 
@@ -23,6 +24,7 @@ export default function VehiculosPage() {
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Vehiculo | null>(null);
+  const [viewing, setViewing] = useState<Vehiculo | null>(null);
   const [toDelete, setToDelete] = useState<Vehiculo | null>(null);
   const { data, isLoading } = useVehiculos({ limit: 200 });
   const writable = can("vehiculos", "write");
@@ -53,16 +55,34 @@ export default function VehiculosPage() {
             { header: "Dimensiones", cell: (v) => (v.largo_cm && v.ancho_cm && v.alto_cm) ? <span className="font-mono text-xs text-slate-500">{`${v.largo_cm}×${v.ancho_cm}×${v.alto_cm} cm`}</span> : <span className="text-slate-300">—</span> },
             { header: "Estado", cell: (v) => <StatusBadge kind="vehiculo" value={v.estado} /> },
             { header: "Activo", cell: (v) => <Badge tone={v.activo ? "green" : "gray"}>{v.activo ? "Sí" : "No"}</Badge> },
-            { header: "", align: "right", cell: (v) => writable && (
+            { header: "", align: "right", cell: (v) => (
               <div className="flex justify-end gap-1">
-                <Button size="icon" variant="ghost" onClick={() => setEditing(v)}><Pencil className="h-4 w-4" /></Button>
-                <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(v)}><Trash2 className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => setViewing(v)}><Eye className="h-4 w-4" /></Button>
+                {writable && <Button size="icon" variant="ghost" onClick={() => setEditing(v)}><Pencil className="h-4 w-4" /></Button>}
+                {writable && <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(v)}><Trash2 className="h-4 w-4" /></Button>}
               </div>
             )},
           ]}
         />
       </Card>
       {(creating || editing) && <VehiculoForm vehiculo={editing} onClose={() => { setCreating(false); setEditing(null); }} />}
+      {viewing && (
+        <DetailModal
+          open
+          onClose={() => setViewing(null)}
+          title={viewing.placa}
+          description="Ficha del vehículo"
+          rows={[
+            { label: "Placa", value: <span className="font-mono">{viewing.placa}</span> },
+            { label: "Tipo", value: viewing.tipo },
+            { label: "Capacidad", value: `${formatNumber(viewing.capacidad_kg)} kg` },
+            { label: "Dimensiones (cm)", value: viewing.largo_cm && viewing.ancho_cm && viewing.alto_cm ? `${viewing.largo_cm}×${viewing.ancho_cm}×${viewing.alto_cm}` : null },
+            { label: "Estado", value: <StatusBadge kind="vehiculo" value={viewing.estado} /> },
+            { label: "Activo", value: <Badge tone={viewing.activo ? "green" : "gray"}>{viewing.activo ? "Sí" : "No"}</Badge> },
+            { label: "Último mantenimiento", value: formatDate(viewing.fecha_mantenimiento, false), full: true },
+          ]}
+        />
+      )}
       <ConfirmModal
         open={!!toDelete}
         title="Desactivar vehículo"
@@ -96,6 +116,9 @@ function VehiculoForm({ vehiculo, onClose }: { vehiculo: Vehiculo | null; onClos
   const submit = () => {
     if ((!isEdit && !form.placa) || !form.tipo) return toast.error("Placa y tipo son obligatorios");
     if (!isEdit && !/^[A-Z]{3}-\d{3}$/.test(form.placa)) return toast.error("La placa debe tener el formato ABC-123 (3 letras, guion, 3 dígitos)");
+    // Dimensiones obligatorias y > 0 al dar de alta (necesarias para validar el cubicaje).
+    if (!isEdit && ![form.largo_cm, form.ancho_cm, form.alto_cm].every((v) => Number(v) > 0))
+      return toast.error("Indica largo, ancho y alto (en cm, mayores que 0)");
     const dim = (v: string) => (v.trim() === "" ? null : Number(v));
     const body: any = {
       tipo: form.tipo, capacidad_kg: Number(form.capacidad_kg || 0), estado: form.estado,
@@ -123,7 +146,7 @@ function VehiculoForm({ vehiculo, onClose }: { vehiculo: Vehiculo | null; onClos
             </Select>
           </Field>
         </div>
-        <Field label="Dimensiones útiles de carga (cm)" hint="Para validar si el paquete cabe físicamente">
+        <Field label="Dimensiones útiles de carga (cm)" required={!isEdit} hint="Para validar si el paquete cabe físicamente">
           <div className="grid grid-cols-3 gap-3">
             <Input type="number" min="0" step="1" value={form.largo_cm} onChange={(e) => setForm({ ...form, largo_cm: e.target.value })} placeholder="Largo" />
             <Input type="number" min="0" step="1" value={form.ancho_cm} onChange={(e) => setForm({ ...form, ancho_cm: e.target.value })} placeholder="Ancho" />

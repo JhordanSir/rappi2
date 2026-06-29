@@ -187,19 +187,21 @@ async def main():
             clientes.append(c)
         await db.commit()
 
-        # ---- Vehículos ----
+        # ---- Vehículos ---- (placa, tipo, cap_kg, estado, largo_cm, ancho_cm, alto_cm)
+        # Dimensiones útiles de carga aproximadas por tipo (para validar cubicaje en asignaciones).
         vehiculos_def = [
-            ("AQP-101", "Camioneta", 1500, "Operativo"), ("AQP-202", "Furgón", 3000, "Operativo"),
-            ("AQP-303", "Motocarga", 90, "Operativo"), ("AQP-404", "Camión", 8000, "Operativo"),
-            ("AQP-505", "Motocarga", 80, "Operativo"), ("AQP-606", "Van", 2000, "Operativo"),
-            ("AQP-707", "Furgón", 3500, "Operativo"), ("AQP-808", "Camioneta", 1400, "Operativo"),
-            ("AQP-909", "Motocarga", 85, "Operativo"), ("AQP-110", "Van", 2200, "Operativo"),
-            ("AQP-220", "Camión", 7500, "Operativo"), ("AQP-330", "Motocarga", 95, "Operativo"),
-            ("AQP-440", "Furgón", 3200, "Operativo"), ("AQP-550", "Camioneta", 1600, "Operativo"),
-            ("AQP-660", "Camión", 6800, "Mantenimiento"), ("AQP-770", "Van", 2100, "Inactivo"),
+            ("AQP-101", "Camioneta", 1500, "Operativo", 180, 140, 120), ("AQP-202", "Furgón", 3000, "Operativo", 320, 180, 190),
+            ("AQP-303", "Motocarga", 90, "Operativo", 120, 90, 90), ("AQP-404", "Camión", 8000, "Operativo", 600, 240, 240),
+            ("AQP-505", "Motocarga", 80, "Operativo", 110, 85, 85), ("AQP-606", "Van", 2000, "Operativo", 250, 160, 150),
+            ("AQP-707", "Furgón", 3500, "Operativo", 340, 185, 195), ("AQP-808", "Camioneta", 1400, "Operativo", 175, 138, 118),
+            ("AQP-909", "Motocarga", 85, "Operativo", 115, 88, 88), ("AQP-110", "Van", 2200, "Operativo", 260, 162, 152),
+            ("AQP-220", "Camión", 7500, "Operativo", 580, 238, 238), ("AQP-330", "Motocarga", 95, "Operativo", 125, 92, 92),
+            ("AQP-440", "Furgón", 3200, "Operativo", 325, 182, 192), ("AQP-550", "Camioneta", 1600, "Operativo", 185, 142, 122),
+            ("AQP-660", "Camión", 6800, "Mantenimiento", 560, 235, 235), ("AQP-770", "Van", 2100, "Inactivo", 255, 160, 150),
         ]
-        for placa, tipo, cap, est in vehiculos_def:
-            db.add(Vehiculo(placa=placa, tipo=tipo, capacidad_kg=cap, estado=est, activo=(est != "Inactivo")))
+        for placa, tipo, cap, est, largo, ancho, alto in vehiculos_def:
+            db.add(Vehiculo(placa=placa, tipo=tipo, capacidad_kg=cap, estado=est, activo=(est != "Inactivo"),
+                            largo_cm=largo, ancho_cm=ancho, alto_cm=alto))
         await db.commit()
         placas_operativas = [v[0] for v in vehiculos_def if v[3] == "Operativo"]
 
@@ -399,8 +401,9 @@ async def main():
         bulk_activos = 0
         recientes_forzadas = 3     # primeras finalizadas con fecha muy reciente → KPIs de últimas 24h
 
+        # Más "Entregado" para que las series mensuales (≈12 meses) tengan varias barras por mes.
         estados_bulk = (
-            ["Entregado"] * 30 + ["En Tránsito"] * 4 + ["En Proceso"] * 4 +
+            ["Entregado"] * 48 + ["En Tránsito"] * 4 + ["En Proceso"] * 4 +
             ["Pendiente"] * 12 + ["Pendiente de Pago"] * 5 + ["Cancelado"] * 6
         )
         random.shuffle(estados_bulk)
@@ -422,8 +425,8 @@ async def main():
                 dest_estados = None
 
             o, (co, do), destinos = await crear_orden(ci, estado, dlist, nivel, ajuste, prog_h, dest_estados)
-            # Distribuir la creación en ~90 días → series temporales ricas (ventas por día/mes).
-            dias_atras = random.randint(0, 90)
+            # Distribuir la creación en ~12 meses → series mensuales ricas (ventas por día/mes).
+            dias_atras = random.randint(0, 365)
             o.fecha_creacion = now - timedelta(days=dias_atras, hours=random.randint(0, 23), minutes=random.randint(0, 59))
             origen_latlon = (co[0], co[1])
 

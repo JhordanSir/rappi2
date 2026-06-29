@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Pencil, Truck, IdCard } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Truck, IdCard } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useConductores, useVehiculos, useUsuarios, useApiMutation } from "@/api/hooks";
@@ -11,8 +11,11 @@ import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/Table";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { DetailModal } from "@/components/ui/DetailModal";
+import { ConfirmModal } from "@/components/ui/Confirm";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
+import { formatNumber } from "@/lib/utils";
 
 const DISPO: DisponibilidadConductor[] = ["Disponible", "Ocupado", "Inactivo"];
 
@@ -21,8 +24,13 @@ export default function ConductoresPage() {
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Conductor | null>(null);
+  const [viewing, setViewing] = useState<Conductor | null>(null);
+  const [toDelete, setToDelete] = useState<Conductor | null>(null);
   const { data, isLoading } = useConductores({ limit: 200 });
   const writable = can("conductores", "write");
+  const deletable = can("conductores", "delete");
+  // Eliminar un conductor lo desactiva y, en cascada, desactiva su usuario (P6).
+  const del = useApiMutation((id: number) => api.delete(`/conductores/${id}`), ["conductores", "usuarios"]);
 
   const rows = useMemo(
     () => (data ?? []).filter((c) => !search || c.nombre.toLowerCase().includes(search.toLowerCase()) || c.licencia.toLowerCase().includes(search.toLowerCase())),
@@ -49,15 +57,61 @@ export default function ConductoresPage() {
                 <p className="flex items-center gap-1 text-xs text-slate-500"><IdCard className="h-3 w-3" /> {c.licencia}</p>
               </div>
             )},
+            { header: "Usuario", cell: (c) => c.usuario ? (
+              <div>
+                <p className="text-sm text-slate-700">{c.usuario.username}</p>
+                <p className="text-xs text-slate-500">{c.usuario.email}</p>
+              </div>
+            ) : <span className="text-slate-400">—</span> },
             { header: "Vehículo", cell: (c) => c.vehiculo_placa ? <span className="inline-flex items-center gap-1 font-mono text-xs"><Truck className="h-3.5 w-3.5 text-slate-400" /> {c.vehiculo_placa}</span> : <span className="text-slate-400">Sin vehículo</span> },
             { header: "Disponibilidad", cell: (c) => <StatusBadge kind="dispo" value={c.disponibilidad} /> },
             { header: "Estado", cell: (c) => <Badge tone={c.activo ? "green" : "gray"}>{c.activo ? "Activo" : "Inactivo"}</Badge> },
-            { header: "", align: "right", cell: (c) => writable && <Button size="icon" variant="ghost" onClick={() => setEditing(c)}><Pencil className="h-4 w-4" /></Button> },
+            { header: "", align: "right", cell: (c) => (
+              <div className="flex justify-end gap-1">
+                <Button size="icon" variant="ghost" onClick={() => setViewing(c)}><Eye className="h-4 w-4" /></Button>
+                {writable && <Button size="icon" variant="ghost" onClick={() => setEditing(c)}><Pencil className="h-4 w-4" /></Button>}
+                {deletable && <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(c)}><Trash2 className="h-4 w-4" /></Button>}
+              </div>
+            )},
           ]}
         />
       </Card>
       {(creating || editing) && <ConductorForm conductor={editing} onClose={() => { setCreating(false); setEditing(null); }} />}
+      {viewing && <ConductorDetail conductor={viewing} onClose={() => setViewing(null)} />}
+      <ConfirmModal
+        open={!!toDelete}
+        title="Eliminar conductor"
+        description={`¿Eliminar al conductor "${toDelete?.nombre}"? Se desactivará junto con su usuario de acceso.`}
+        danger
+        confirmLabel="Eliminar"
+        loading={del.isPending}
+        onClose={() => setToDelete(null)}
+        onConfirm={() => toDelete && del.mutate(toDelete.id, { onSuccess: () => { toast.success("Conductor eliminado"); setToDelete(null); }, onError: (e) => toast.error(apiError(e)) })}
+      />
     </div>
+  );
+}
+
+function ConductorDetail({ conductor: c, onClose }: { conductor: Conductor; onClose: () => void }) {
+  const v = c.vehiculo;
+  return (
+    <DetailModal
+      open
+      onClose={onClose}
+      title={c.nombre}
+      description="Ficha del conductor"
+      rows={[
+        { label: "Nombre", value: c.nombre },
+        { label: "Licencia", value: c.licencia },
+        { label: "Usuario", value: c.usuario?.username },
+        { label: "Email", value: c.usuario?.email },
+        { label: "Disponibilidad", value: <StatusBadge kind="dispo" value={c.disponibilidad} /> },
+        { label: "Estado", value: <Badge tone={c.activo ? "green" : "gray"}>{c.activo ? "Activo" : "Inactivo"}</Badge> },
+        { label: "Vehículo", value: v ? `${v.placa} · ${v.tipo}` : "Sin vehículo" },
+        { label: "Capacidad", value: v ? `${formatNumber(v.capacidad_kg)} kg` : null },
+        { label: "Dimensiones (cm)", value: v && v.largo_cm && v.ancho_cm && v.alto_cm ? `${v.largo_cm}×${v.ancho_cm}×${v.alto_cm}` : null, full: true },
+      ]}
+    />
   );
 }
 

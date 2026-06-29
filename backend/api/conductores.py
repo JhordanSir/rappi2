@@ -28,7 +28,7 @@ async def list_conductores(
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("conductores", "read")),
 ):
-    stmt = select(Conductor).options(selectinload(Conductor.vehiculo))
+    stmt = select(Conductor).options(selectinload(Conductor.vehiculo), selectinload(Conductor.usuario))
     if activo is not None:
         stmt = stmt.where(Conductor.activo == activo)
     if disponibilidad is not None:
@@ -60,7 +60,7 @@ async def create_conductor(
         await db.rollback()
         raise HTTPException(status_code=400, detail="usuario_id o licencia ya en uso")
     result = await db.execute(
-        select(Conductor).options(selectinload(Conductor.vehiculo)).where(Conductor.id == conductor.id)
+        select(Conductor).options(selectinload(Conductor.vehiculo), selectinload(Conductor.usuario)).where(Conductor.id == conductor.id)
     )
     return result.scalar_one()
 
@@ -73,7 +73,7 @@ async def get_mi_conductor(
 ):
     """Perfil del conductor autenticado (lo usa la app del conductor para arrancar)."""
     result = await db.execute(
-        select(Conductor).options(selectinload(Conductor.vehiculo)).where(Conductor.usuario_id == current_user.id)
+        select(Conductor).options(selectinload(Conductor.vehiculo), selectinload(Conductor.usuario)).where(Conductor.usuario_id == current_user.id)
     )
     conductor = result.scalar_one_or_none()
     if conductor is None:
@@ -88,7 +88,7 @@ async def get_conductor(
     _: object = Depends(require_permiso("conductores", "read")),
 ):
     result = await db.execute(
-        select(Conductor).options(selectinload(Conductor.vehiculo)).where(Conductor.id == conductor_id)
+        select(Conductor).options(selectinload(Conductor.vehiculo), selectinload(Conductor.usuario)).where(Conductor.id == conductor_id)
     )
     conductor = result.scalar_one_or_none()
     if conductor is None:
@@ -116,7 +116,7 @@ async def update_conductor(
     await db.commit()
     await db.refresh(conductor)
     result = await db.execute(
-        select(Conductor).options(selectinload(Conductor.vehiculo)).where(Conductor.id == conductor.id)
+        select(Conductor).options(selectinload(Conductor.vehiculo), selectinload(Conductor.usuario)).where(Conductor.id == conductor.id)
     )
     return result.scalar_one()
 
@@ -141,7 +141,7 @@ async def asignar_vehiculo(
     await db.commit()
     await db.refresh(conductor)
     result = await db.execute(
-        select(Conductor).options(selectinload(Conductor.vehiculo)).where(Conductor.id == conductor.id)
+        select(Conductor).options(selectinload(Conductor.vehiculo), selectinload(Conductor.usuario)).where(Conductor.id == conductor.id)
     )
     return result.scalar_one()
 

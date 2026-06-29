@@ -101,11 +101,11 @@ async def reporte_ventas(
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("reportes", "read")),
 ) -> dict[str, Any]:
-    """Recaudacion agregada por dia o mes. Por defecto ultimos 30 dias."""
+    """Recaudacion agregada por dia o mes. Por defecto: ultimos 30 dias (dia) o 12 meses (mes)."""
     if hasta is None:
         hasta = datetime.now(timezone.utc)
     if desde is None:
-        desde = hasta - timedelta(days=30)
+        desde = hasta - timedelta(days=365 if granularidad == "mes" else 30)
 
     if granularidad == "mes":
         bucket = func.date_trunc("month", Pago.fecha_pago).label("periodo")
