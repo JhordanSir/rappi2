@@ -50,6 +50,17 @@ class VehiculoUpdate(BaseModel):
     fecha_mantenimiento: Optional[datetime] = None
     activo: Optional[bool] = None
 
+    # Al editar, capacidad y dimensiones pueden omitirse (no cambian) pero NO vaciarse
+    # ni quedar en <= 0: sin ellas la validación de cubicaje/carga sería un no-op.
+    @field_validator("capacidad_kg", "largo_cm", "ancho_cm", "alto_cm")
+    @classmethod
+    def _medidas_positivas(cls, v, info):
+        if v is None:
+            raise ValueError(f"{info.field_name} no puede vaciarse (se usa para validar carga/cubicaje)")
+        if v <= 0:
+            raise ValueError(f"{info.field_name} debe ser mayor que 0")
+        return v
+
 
 class VehiculoResponse(VehiculoBase):
     activo: bool

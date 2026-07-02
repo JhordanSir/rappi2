@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,10 +10,12 @@ from decimal import Decimal
 
 from api.dependencies import UserScope, get_mongo_db, get_scope, orden_en_alcance, require_permiso
 from core.database import get_db
+from core.estados import TRANSICIONES_ORDEN, validar_transicion
 from core.pagination import paginate
 from core.realtime import CANAL_STAFF, canal_cliente, publish
-from models.asignaciones import Asignacion
+from models.asignaciones import Asignacion, asignacion_ordenes
 from models.clientes import Cliente
+from models.conductores import Conductor
 from models.destinos import Destino
 from models.ordenes import Orden
 from schemas.ordenes import (
@@ -232,6 +236,46 @@ async def get_orden(
     return orden
 
 
+async def _cancelar_orden(db: AsyncSession, orden: Orden) -> None:
+    """Cancela la orden LIBERANDO sus recursos (no hace commit; el llamador decide):
+    los destinos pendientes quedan 'Fallida', y si la orden pertenecía a un run activo
+    y ya no le queda trabajo, la asignación se cierra ('Cancelada') y el conductor
+    vuelve a 'Disponible' — evita asignaciones fantasma y conductores 'Ocupado' eternos."""
+    orden.estado = "Cancelado"
+    destinos = (await db.execute(select(Destino).where(Destino.orden_id == orden.id))).scalars().all()
+    for d in destinos:
+        if d.estado == "Pendiente":
+            d.estado = "Fallida"
+            d.nota = "Orden cancelada"
+    # Run activo que contiene esta orden (vía la tabla puente asignacion_ordenes).
+    asignacion = (
+        await db.execute(
+            select(Asignacion)
+            .join(asignacion_ordenes, asignacion_ordenes.c.asignacion_id == Asignacion.id)
+            .where(
+                asignacion_ordenes.c.orden_id == orden.id,
+                Asignacion.estado.in_(("Asignada", "EnCurso")),
+            )
+            .order_by(Asignacion.id.desc())
+        )
+    ).scalars().first()
+    if asignacion is None:
+        return
+    # ¿Le queda trabajo activo al run? (otras órdenes aún no terminales)
+    activas = [o for o in asignacion.ordenes if o.id != orden.id and o.estado not in ("Entregado", "Cancelado")]
+    if not activas:
+        asignacion.estado = "Cancelada"
+        asignacion.fecha_fin = datetime.now(timezone.utc)
+        # Lock de fila del conductor (mismo criterio que create_asignacion).
+        conductor = (
+            await db.execute(
+                select(Conductor).where(Conductor.id == asignacion.conductor_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if conductor is not None and conductor.disponibilidad == "Ocupado":
+            conductor.disponibilidad = "Disponible"
+
+
 @router.patch("/{orden_id}", response_model=OrdenResponse)
 async def update_orden(
     orden_id: int,
@@ -244,6 +288,17 @@ async def update_orden(
     if orden is None or not await orden_en_alcance(db, scope, orden):
         raise HTTPException(status_code=404, detail="Orden no encontrada")
     update = payload.model_dump(exclude_unset=True)
+    # Cambios de estado a mano: solo transiciones legales (core/estados.py). Los estados
+    # de avance se alcanzan por sus endpoints (asignar/iniciar/entregar), no editando.
+    nuevo_estado = update.pop("estado", None)
+    estado_cambio = nuevo_estado is not None and nuevo_estado != orden.estado
+    if estado_cambio:
+        validar_transicion("orden", orden.estado, nuevo_estado, TRANSICIONES_ORDEN)
+        if nuevo_estado == "Cancelado":
+            # Cancelar libera conductor/asignación: misma rutina que DELETE /ordenes/{id}.
+            await _cancelar_orden(db, orden)
+        else:
+            orden.estado = nuevo_estado
     # El ajuste de precio solo lo aplica el staff.
     ajuste_monto = update.pop("ajuste_monto", None)
     ajuste_motivo = update.pop("ajuste_motivo", None)
@@ -285,6 +340,10 @@ async def update_orden(
         orden.total = max(Decimal("0"), (base or Decimal("0")) + ajuste) if base is not None else None
 
     await db.commit()
+    if estado_cambio:
+        evento = {"tipo": "orden", "accion": "estado", "orden_id": orden.id, "estado": orden.estado}
+        await publish(canal_cliente(orden.cliente_id), evento)
+        await publish(CANAL_STAFF, evento)
     return await _get_orden_full(db, orden_id)
 
 
@@ -390,9 +449,10 @@ async def delete_orden(
     orden = await db.get(Orden, orden_id)
     if orden is None or not await orden_en_alcance(db, scope, orden):
         raise HTTPException(status_code=404, detail="Orden no encontrada")
-    if orden.estado == "Cancelado":
-        raise HTTPException(status_code=400, detail="La orden ya esta cancelada")
-    orden.estado = "Cancelado"
+    # Misma regla que el PATCH: solo se cancela desde estados no terminales.
+    validar_transicion("orden", orden.estado, "Cancelado", TRANSICIONES_ORDEN)
+    # Cancela liberando conductor/asignación (evita estados fantasma).
+    await _cancelar_orden(db, orden)
     await db.commit()
     # Notifica el cambio de estado al dueño de la orden y a la operación.
     evento = {"tipo": "orden", "accion": "estado", "orden_id": orden.id, "estado": "Cancelado"}

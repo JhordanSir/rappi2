@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
 } from "recharts";
-import { DollarSign, FileText, Timer, TimerReset, TimerOff } from "lucide-react";
+import { DollarSign, Download, FileText, Timer, TimerReset, TimerOff } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
@@ -10,7 +10,23 @@ import { DataTable } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { useReporte } from "@/api/hooks";
+import { descargarCSV } from "@/lib/csv";
 import { formatMoney, formatNumber, humanDuration, formatDate } from "@/lib/utils";
+
+/** Botón compacto de exportación (deshabilitado si aún no hay datos). */
+function ExportCSV({ nombre, filas }: { nombre: string; filas?: Record<string, unknown>[] | null }) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={!filas || filas.length === 0}
+      title="Descargar los datos de esta sección en CSV"
+      onClick={() => filas && descargarCSV(nombre, filas)}
+    >
+      <Download className="h-3.5 w-3.5" /> CSV
+    </Button>
+  );
+}
 
 const SEV_COLORS = ["#94a3b8", "#a3e635", "#facc15", "#fb923c", "#f43f5e"];
 
@@ -41,12 +57,15 @@ export default function ReportesPage() {
             title="Recaudación"
             subtitle="Pagos confirmados"
             action={
-              <div className="flex rounded-lg bg-slate-100 p-0.5">
-                {(["dia", "mes"] as const).map((g) => (
-                  <Button key={g} size="sm" variant={gran === g ? "primary" : "ghost"} onClick={() => setGran(g)} className="capitalize">
-                    {g === "dia" ? "Diario" : "Mensual"}
-                  </Button>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg bg-slate-100 p-0.5">
+                  {(["dia", "mes"] as const).map((g) => (
+                    <Button key={g} size="sm" variant={gran === g ? "primary" : "ghost"} onClick={() => setGran(g)} className="capitalize">
+                      {g === "dia" ? "Diario" : "Mensual"}
+                    </Button>
+                  ))}
+                </div>
+                <ExportCSV nombre={`recaudacion-${gran}`} filas={ventas?.series} />
               </div>
             }
           />
@@ -68,7 +87,10 @@ export default function ReportesPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Incidencias por severidad" />
+          <CardHeader
+            title="Incidencias por severidad"
+            action={<ExportCSV nombre="incidencias-severidad" filas={sevData} />}
+          />
           <CardBody>
             {sevData.length === 0 ? (
               <div className="flex h-64 items-center justify-center text-sm text-slate-400">Sin incidencias</div>
@@ -97,7 +119,10 @@ export default function ReportesPage() {
         </div>
 
         <Card className="lg:col-span-2">
-          <CardHeader title="Desempeño por conductor" />
+          <CardHeader
+            title="Desempeño por conductor"
+            action={<ExportCSV nombre="desempeno-conductores" filas={conductores} />}
+          />
           <DataTable
             rows={conductores}
             rowKey={(c) => c.conductor_id}

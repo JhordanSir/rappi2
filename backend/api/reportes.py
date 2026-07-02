@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from api.dependencies import get_mongo_db, require_permiso
+from core.config import settings
 from core.database import get_db
 from models.asignaciones import Asignacion
 from models.calificaciones import Calificacion
@@ -76,6 +77,17 @@ async def dashboard(
         await db.execute(select(func.count(Incidencia.id)).where(Incidencia.severidad >= 3))
     ).scalar() or 0
 
+    # Órdenes retenidas por pago desde hace más de PAGO_AVISO_DIAS: no se auto-cancelan
+    # (decisión de negocio), pero se resaltan para que el staff decida (cobrar/cancelar).
+    umbral_impagas = datetime.now(timezone.utc) - timedelta(days=settings.PAGO_AVISO_DIAS)
+    impagas_antiguas = (
+        await db.execute(
+            select(func.count(Orden.id)).where(
+                Orden.estado == "Pendiente de Pago", Orden.fecha_creacion < umbral_impagas
+            )
+        )
+    ).scalar() or 0
+
     return {
         "totales": {
             "clientes": total_clientes,
@@ -90,6 +102,8 @@ async def dashboard(
         "vehiculos_por_estado": vehiculos_por_estado,
         "recaudacion_ultimas_24h": float(recaudacion_24h),
         "incidencias_severidad_alta": incidencias_abiertas,
+        "ordenes_impagas_antiguas": impagas_antiguas,
+        "pago_aviso_dias": settings.PAGO_AVISO_DIAS,
     }
 
 

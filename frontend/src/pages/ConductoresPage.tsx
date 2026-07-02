@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, Truck, IdCard } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useConductores, useVehiculos, useUsuarios, useApiMutation } from "@/api/hooks";
+import { useConductores, useVehiculos, useUsuarios, useApiMutation, useDebouncedValue, usePaginated } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { Conductor, DisponibilidadConductor } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -14,10 +14,12 @@ import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { Field, Input, Select } from "@/components/ui/Field";
+import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
 import { formatNumber } from "@/lib/utils";
 
 const DISPO: DisponibilidadConductor[] = ["Disponible", "Ocupado", "Inactivo"];
+const PAGE_SIZE = 20;
 
 export default function ConductoresPage() {
   const { can } = useAuth();
@@ -26,16 +28,22 @@ export default function ConductoresPage() {
   const [editing, setEditing] = useState<Conductor | null>(null);
   const [viewing, setViewing] = useState<Conductor | null>(null);
   const [toDelete, setToDelete] = useState<Conductor | null>(null);
-  const { data, isLoading } = useConductores({ limit: 200 });
+  const [page, setPage] = useState(0);
+  const dq = useDebouncedValue(search.trim());
+  useEffect(() => setPage(0), [dq]);
+  // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
+  const { data, isLoading } = usePaginated<Conductor>("conductores", "/conductores/", {
+    skip: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    ...(dq ? { q: dq } : {}),
+  });
   const writable = can("conductores", "write");
   const deletable = can("conductores", "delete");
   // Eliminar un conductor lo desactiva y, en cascada, desactiva su usuario (P6).
   const del = useApiMutation((id: number) => api.delete(`/conductores/${id}`), ["conductores", "usuarios"]);
 
-  const rows = useMemo(
-    () => (data ?? []).filter((c) => !search || c.nombre.toLowerCase().includes(search.toLowerCase()) || c.licencia.toLowerCase().includes(search.toLowerCase())),
-    [data, search],
-  );
+  const rows = data?.items;
+  const total = data?.total ?? 0;
 
   return (
     <div>
@@ -50,6 +58,7 @@ export default function ConductoresPage() {
           rows={rows}
           loading={isLoading}
           rowKey={(c) => c.id}
+          footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
           columns={[
             { header: "Conductor", cell: (c) => (
               <div>

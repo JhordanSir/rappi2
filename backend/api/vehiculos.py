@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
 from api.dependencies import require_permiso
 from core.database import get_db
+from core.pagination import paginate
 from models.vehiculos import Vehiculo
 from schemas.vehiculos import VehiculoCreate, VehiculoResponse, VehiculoUpdate
 
@@ -13,10 +15,12 @@ router = APIRouter(prefix="/vehiculos", tags=["vehiculos"])
 
 @router.get("/", response_model=list[VehiculoResponse])
 async def list_vehiculos(
+    response: Response,
     skip: int = 0,
     limit: int = Query(50, le=200),
     activo: bool | None = True,
     estado: str | None = None,
+    q: str | None = Query(None, description="Busca por placa o tipo"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("vehiculos", "read")),
 ):
@@ -25,9 +29,12 @@ async def list_vehiculos(
         stmt = stmt.where(Vehiculo.activo == activo)
     if estado is not None:
         stmt = stmt.where(Vehiculo.estado == estado)
-    stmt = stmt.offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    if q:
+        patron = f"%{q.strip()}%"
+        stmt = stmt.where(or_(Vehiculo.placa.ilike(patron), Vehiculo.tipo.ilike(patron)))
+    stmt = stmt.order_by(Vehiculo.placa)
+    # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
+    return await paginate(db, stmt, response, skip, limit)
 
 
 @router.post("/", response_model=VehiculoResponse, status_code=status.HTTP_201_CREATED)

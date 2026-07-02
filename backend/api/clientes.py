@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
@@ -6,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import UserScope, get_scope, require_permiso
 from core.database import get_db
+from core.pagination import paginate
 from models.clientes import Cliente, ClienteDireccion
 from models.usuarios import Usuario
 from schemas.clientes import (
@@ -33,9 +35,11 @@ def _solo_staff(scope: UserScope) -> None:
 
 @router.get("/", response_model=list[ClienteResponse])
 async def list_clientes(
+    response: Response,
     skip: int = 0,
     limit: int = Query(50, le=200),
     activo: bool | None = True,
+    q: str | None = Query(None, description="Busca por nombre o email"),
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "read")),
@@ -44,13 +48,17 @@ async def list_clientes(
     if not scope.ve_todo():
         # Un cliente solo se ve a sí mismo en el listado.
         if scope.cliente_id is None:
+            response.headers["X-Total-Count"] = "0"
             return []
         stmt = stmt.where(Cliente.id == scope.cliente_id)
     if activo is not None:
         stmt = stmt.where(Cliente.activo == activo)
-    stmt = stmt.offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    if q:
+        patron = f"%{q.strip()}%"
+        stmt = stmt.where(or_(Cliente.nombre.ilike(patron), Cliente.email.ilike(patron)))
+    stmt = stmt.order_by(Cliente.id)
+    # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
+    return await paginate(db, stmt, response, skip, limit)
 
 
 @router.post("/", response_model=ClienteResponse, status_code=status.HTTP_201_CREATED)

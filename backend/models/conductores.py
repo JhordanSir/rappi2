@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, Column, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -19,6 +19,10 @@ class Conductor(Base):
     licencia = Column(String(30), unique=True, nullable=False)
     disponibilidad = Column(String(20), default="Disponible", nullable=False)
     activo = Column(Boolean, default=True, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("disponibilidad IN ('Disponible','Ocupado','Inactivo')", name="conductor_disponibilidad"),
+    )
 
     usuario = relationship("Usuario", back_populates="conductor")
     vehiculo = relationship("Vehiculo", back_populates="conductores")

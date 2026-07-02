@@ -14,6 +14,7 @@ from api.dependencies import (
     require_permiso,
 )
 from core.database import get_db
+from core.estados import TRANSICIONES_ASIGNACION, validar_transicion
 from core.realtime import CANAL_STAFF, canal_cliente, publish
 from sqlalchemy.orm import selectinload
 
@@ -87,19 +88,44 @@ async def _peso_y_destinos(db: AsyncSession, orden_ids: list[int]):
     return peso_total, destinos
 
 
+async def _peso_comprometido_vehiculo(db: AsyncSession, placa: str) -> float:
+    """Peso (kg) ya comprometido en los runs ACTIVOS (Asignada/EnCurso) del vehículo:
+    la carga de sus órdenes aún no terminales. Sin esto, varias asignaciones simultáneas
+    podían sumar más carga que la capacidad real del vehículo."""
+    activas = (
+        await db.execute(
+            select(Asignacion).where(
+                Asignacion.vehiculo_placa == placa,
+                Asignacion.estado.in_(("Asignada", "EnCurso")),
+            )
+        )
+    ).scalars().all()
+    orden_ids: list[int] = []
+    for a in activas:
+        orden_ids.extend(o.id for o in a.ordenes if o.estado not in ("Entregado", "Cancelado"))
+    if not orden_ids:
+        return 0.0
+    peso, _ = await _peso_y_destinos(db, orden_ids)
+    return peso
+
+
 async def _validar_carga(db: AsyncSession, ordenes: list[Orden], vehiculo: Vehiculo) -> None:
-    """Bloquea (409) si la carga supera la capacidad en kg del vehículo o si algún paquete no
-    cabe en sus dimensiones útiles (cubicaje). Regla de negocio: no sobrecargar el vehículo."""
+    """Bloquea (409) si la carga (incluida la ya comprometida en runs activos del vehículo)
+    supera su capacidad en kg, o si algún paquete no cabe en sus dimensiones útiles
+    (cubicaje). Regla de negocio: no sobrecargar el vehículo."""
     peso_total, destinos = await _peso_y_destinos(db, [o.id for o in ordenes])
     cap = float(vehiculo.capacidad_kg) if vehiculo.capacidad_kg is not None else None
-    if cap is not None and peso_total > cap:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"El vehículo {vehiculo.placa} no soporta la carga: se requieren {peso_total} kg "
-                f"y su capacidad es {cap} kg. Elige un vehículo de mayor capacidad."
-            ),
-        )
+    if cap is not None:
+        peso_previo = await _peso_comprometido_vehiculo(db, vehiculo.placa)
+        if peso_total + peso_previo > cap:
+            previo_txt = f" (ya lleva {peso_previo} kg en runs activos)" if peso_previo > 0 else ""
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"El vehículo {vehiculo.placa} no soporta la carga: se requieren {peso_total} kg"
+                    f"{previo_txt} y su capacidad es {cap} kg. Elige un vehículo de mayor capacidad."
+                ),
+            )
     caja = (vehiculo.largo_cm, vehiculo.ancho_cm, vehiculo.alto_cm)
     for d in destinos:
         if not _dims_caben((d.largo_cm, d.ancho_cm, d.alto_cm), caja):
@@ -168,22 +194,36 @@ async def create_asignacion(
     if not ids:
         raise HTTPException(status_code=400, detail="Indica una o varias órdenes")
 
+    # Lecturas con SELECT ... FOR UPDATE: dos dispatchers simultáneos no pueden asignar
+    # el mismo conductor/orden/vehículo. El segundo espera el lock de fila y, al releer,
+    # ve el estado ya cambiado ("Ocupado"/"En Proceso") y recibe el 400 correspondiente.
+    # Los locks se liberan en el commit/rollback de esta misma transacción.
     ordenes: list[Orden] = []
     for oid in ids:
-        orden = await db.get(Orden, oid)
+        orden = (
+            await db.execute(select(Orden).where(Orden.id == oid).with_for_update())
+        ).scalar_one_or_none()
         if orden is None:
             raise HTTPException(status_code=404, detail=f"Orden {oid} no encontrada")
         if orden.estado != "Pendiente":
             raise HTTPException(status_code=400, detail=f"Orden {oid} no está Pendiente (actual: {orden.estado})")
         ordenes.append(orden)
 
-    conductor = await db.get(Conductor, payload.conductor_id)
+    conductor = (
+        await db.execute(
+            select(Conductor).where(Conductor.id == payload.conductor_id).with_for_update()
+        )
+    ).scalar_one_or_none()
     if conductor is None or not conductor.activo:
         raise HTTPException(status_code=400, detail="Conductor invalido o inactivo")
     if conductor.disponibilidad != "Disponible":
         raise HTTPException(status_code=400, detail=f"Conductor no disponible (actual: {conductor.disponibilidad})")
 
-    vehiculo = await db.get(Vehiculo, payload.vehiculo_placa)
+    vehiculo = (
+        await db.execute(
+            select(Vehiculo).where(Vehiculo.placa == payload.vehiculo_placa).with_for_update()
+        )
+    ).scalar_one_or_none()
     if vehiculo is None or not vehiculo.activo:
         raise HTTPException(status_code=400, detail="Vehiculo invalido o inactivo")
     if vehiculo.estado != "Operativo":
@@ -235,11 +275,56 @@ async def create_asignacion(
     # zona de restricción si el plaqueo lo requiere.
     try:
         await generar_run(db, primary, ordenes, mongo_db=mongo_db, evitar_zonas=evitar_zonas)
-    except Exception as exc:  # noqa: BLE001 - la ruta es best-effort
+    except Exception as exc:  # noqa: BLE001 - la ruta es best-effort; la asignación YA está confirmada
+        # El commit anterior persistió la asignación: este rollback solo descarta lo que
+        # generar_run dejó a medias en la sesión (no "deshace" la asignación). El fallo se
+        # registra como incidencia y se avisa al staff para que use "Regenerar ruta".
+        await db.rollback()
         import logging
         logging.getLogger(__name__).warning("No se pudo generar la ruta del run %s: %s", asignacion.id, exc)
-        await db.rollback()
+        db.add(Incidencia(
+            asignacion_id=asignacion.id, tipo="Ruta no generada", severidad=2, origen="automatica",
+            notas=f"No se pudo generar la ruta del run al asignar: {exc}. Regenérala desde la asignación.",
+        ))
+        await db.commit()
+        await publish(CANAL_STAFF, {
+            "tipo": "notificacion",
+            "titulo": f"Asignación #{asignacion.id} sin ruta",
+            "mensaje": "No se pudo generar la ruta del run. Regenérala desde Asignaciones.",
+        })
     return await _asg_full(db, asignacion.id)
+
+
+@router.post("/{asignacion_id}/regenerar-ruta", response_model=AsignacionResponse)
+async def regenerar_ruta(
+    asignacion_id: int,
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    scope: UserScope = Depends(get_scope),
+    _: object = Depends(require_permiso("asignaciones", "write")),
+):
+    """(Re)genera la ruta consolidada del run — p. ej. si falló al crear la asignación
+    (OSRM caído) o para recalcularla. `generar_run` reemplaza las rutas previas de las
+    órdenes involucradas, así que es idempotente."""
+    _solo_staff(scope)
+    asignacion = await _asg_full(db, asignacion_id)
+    if asignacion is None:
+        raise HTTPException(status_code=404, detail="Asignacion no encontrada")
+    if asignacion.estado not in ("Asignada", "EnCurso"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Solo se regenera la ruta de un run activo (actual: {asignacion.estado})",
+        )
+    ordenes = list(asignacion.ordenes)
+    primary = next((o for o in ordenes if o.id == asignacion.orden_id), ordenes[0])
+    # Mismo criterio de plaqueo que al asignar: rebordear el centro si la ruta lo cruza.
+    plaqueo = await plaqueo_service.evaluar_asignacion(db, mongo_db, ordenes, asignacion.vehiculo_placa)
+    try:
+        await generar_run(db, primary, ordenes, mongo_db=mongo_db, evitar_zonas=plaqueo["reroute"])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        raise HTTPException(status_code=502, detail=f"No se pudo generar la ruta: {exc}")
+    return await _asg_full(db, asignacion_id)
 
 
 @router.get("/sugerencia", response_model=list[SugerenciaConductor])
@@ -348,6 +433,23 @@ async def get_asignacion(
     return asignacion
 
 
+async def _revertir_asignacion(db: AsyncSession, asignacion: Asignacion) -> None:
+    """Devuelve las órdenes aún no iniciadas del run a 'Pendiente' (vuelven a la cola de
+    despacho) y libera al conductor. Se usa al cancelar/eliminar una asignación que no
+    llegó a iniciarse — sin esto quedaban órdenes 'En Proceso' y conductores 'Ocupado'
+    fantasma. No hace commit (el llamador controla la transacción)."""
+    for orden in asignacion.ordenes:
+        if orden.estado == "En Proceso":
+            orden.estado = "Pendiente"
+    conductor = (
+        await db.execute(
+            select(Conductor).where(Conductor.id == asignacion.conductor_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if conductor is not None and conductor.disponibilidad == "Ocupado":
+        conductor.disponibilidad = "Disponible"
+
+
 @router.patch("/{asignacion_id}", response_model=AsignacionResponse)
 async def update_asignacion(
     asignacion_id: int,
@@ -357,14 +459,27 @@ async def update_asignacion(
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
     _solo_staff(scope)
-    asignacion = await db.get(Asignacion, asignacion_id)
+    asignacion = await _asg_full(db, asignacion_id)
     if asignacion is None:
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    update = payload.model_dump(exclude_unset=True)
+    # Cambios de estado a mano: solo transiciones legales (core/estados.py). Iniciar,
+    # finalizar y reabrir tienen sus endpoints dedicados con guardas propias.
+    nuevo_estado = update.pop("estado", None)
+    ordenes_cambiadas: list[Orden] = []
+    if nuevo_estado is not None and nuevo_estado != asignacion.estado:
+        validar_transicion("asignación", asignacion.estado, nuevo_estado, TRANSICIONES_ASIGNACION)
+        asignacion.estado = nuevo_estado
+        if nuevo_estado == "Cancelada":
+            asignacion.fecha_fin = datetime.now(timezone.utc)
+            ordenes_cambiadas = [o for o in asignacion.ordenes if o.estado == "En Proceso"]
+            await _revertir_asignacion(db, asignacion)
+    for k, v in update.items():
         setattr(asignacion, k, v)
     await db.commit()
-    await db.refresh(asignacion)
-    return asignacion
+    for orden in ordenes_cambiadas:
+        await _avisar_estado_orden(db, orden)
+    return await _asg_full(db, asignacion_id)
 
 
 @router.patch("/{asignacion_id}/iniciar", response_model=AsignacionResponse)
@@ -706,6 +821,10 @@ async def delete_asignacion(
         raise HTTPException(status_code=404, detail="Asignacion no encontrada")
     if asignacion.estado == "EnCurso":
         raise HTTPException(status_code=400, detail="No se puede borrar una asignacion en curso")
+    # Borrar un run aún no iniciado no debe dejar huérfanos: órdenes de vuelta a la
+    # cola ('Pendiente') y conductor 'Disponible'.
+    if asignacion.estado == "Asignada":
+        await _revertir_asignacion(db, asignacion)
     await tracking_service.eliminar_por_asignacion(mongo_db, asignacion_id)
     await geocerca_service.eliminar_por_asignacion(mongo_db, asignacion_id)
     await entregas_service.eliminar_por_asignacion(mongo_db, asignacion_id)

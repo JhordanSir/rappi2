@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Play, CheckCircle2, Trash2, ExternalLink, Camera, RotateCcw } from "lucide-react";
+import { Plus, Play, CheckCircle2, Trash2, ExternalLink, Camera, RotateCcw, Route } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useAsignaciones, useOrdenes, useConductores, useVehiculos, useApiMutation, usePruebasEntrega } from "@/api/hooks";
@@ -34,6 +34,8 @@ export default function AsignacionesPage() {
   const iniciar = useApiMutation((id: number) => api.patch(`/asignaciones/${id}/iniciar`), ["asignaciones", "ordenes"]);
   const reabrir = useApiMutation((id: number) => api.patch(`/asignaciones/${id}/reabrir`), ["asignaciones", "ordenes"]);
   const del = useApiMutation((id: number) => api.delete(`/asignaciones/${id}`), ["asignaciones"]);
+  // Reconstruye la ruta consolidada del run (p. ej. si falló al asignar por OSRM caído).
+  const regenRuta = useApiMutation((id: number) => api.post(`/asignaciones/${id}/regenerar-ruta`), ["asignaciones", "rutas", "seguimiento"]);
 
   const rows = useMemo(
     () => (data ?? []).filter((a) => !search || String(a.orden_id).includes(search) || a.vehiculo_placa.toLowerCase().includes(search.toLowerCase())),
@@ -81,6 +83,17 @@ export default function AsignacionesPage() {
                   {(a.estado === "EnCurso" || a.estado === "Finalizada") && (
                     <Button size="sm" variant="ghost" onClick={() => setViewing(a)} title="Ver evidencia de entrega">
                       <Camera className="h-3.5 w-3.5" /> Evidencia
+                    </Button>
+                  )}
+                  {writable && (a.estado === "Asignada" || a.estado === "EnCurso") && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="Regenerar la ruta del run (si falló al asignar o para recalcularla)"
+                      loading={regenRuta.isPending && regenRuta.variables === a.id}
+                      onClick={() => regenRuta.mutate(a.id, { onSuccess: () => toast.success("Ruta regenerada"), onError: (e) => toast.error(apiError(e)) })}
+                    >
+                      <Route className="h-3.5 w-3.5" /> Ruta
                     </Button>
                   )}
                   {writable && a.estado === "Asignada" && (

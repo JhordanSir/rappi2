@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # sin límite en producción (0 = sin expiración, conservar todo).
     GPS_TRACKING_RETENCION_DIAS: int = 30
 
+    # Aviso de órdenes impagas: una orden 'Pendiente de Pago' con más de N días se
+    # considera antigua y se resalta al staff en el dashboard (no se auto-cancela).
+    PAGO_AVISO_DIAS: int = 2
+
+    # Nivel de logging de la aplicación (DEBUG/INFO/WARNING/ERROR).
+    LOG_LEVEL: str = "INFO"
+
     ORS_API_KEY: str = "your_ors_api_key_here"
     GEOCODING_ENABLED: bool = True
 

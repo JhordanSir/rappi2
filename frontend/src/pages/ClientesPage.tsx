@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, MapPin, Pencil, Trash2, Eye, Building2, Star } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useClientes, useApiMutation } from "@/api/hooks";
+import { useApiMutation, useClientes, useDebouncedValue, usePaginated } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { Cliente, ClienteDireccion } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -14,27 +14,36 @@ import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
 import { Field, Input } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
+import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
 import { LocationPicker } from "@/components/map/MapView";
 import { formatCoord, formatDate } from "@/lib/utils";
 
+const PAGE_SIZE = 20;
+
 export default function ClientesPage() {
   const { can } = useAuth();
   const [search, setSearch] = useState("");
-  const { data, isLoading } = useClientes({ limit: 200 });
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [creating, setCreating] = useState(false);
   const [direcciones, setDirecciones] = useState<Cliente | null>(null);
   const [viewing, setViewing] = useState<Cliente | null>(null);
   const [toDelete, setToDelete] = useState<Cliente | null>(null);
+  const [page, setPage] = useState(0);
+  const dq = useDebouncedValue(search.trim());
+  useEffect(() => setPage(0), [dq]);
+  // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
+  const { data, isLoading } = usePaginated<Cliente>("clientes", "/clientes/", {
+    skip: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    ...(dq ? { q: dq } : {}),
+  });
 
   // Desactivar un cliente desactiva en cascada su usuario; refrescamos ambas listas (P6).
   const del = useApiMutation((id: number) => api.delete(`/clientes/${id}`), ["clientes", "usuarios"]);
 
-  const rows = useMemo(() => {
-    const q = search.toLowerCase();
-    return (data ?? []).filter((c) => !q || c.nombre.toLowerCase().includes(q) || c.email.toLowerCase().includes(q));
-  }, [data, search]);
+  const rows = data?.items;
+  const total = data?.total ?? 0;
 
   const writable = can("clientes", "write");
 
@@ -54,6 +63,7 @@ export default function ClientesPage() {
           rows={rows}
           loading={isLoading}
           rowKey={(c) => c.id}
+          footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
           columns={[
             {
               header: "Cliente",

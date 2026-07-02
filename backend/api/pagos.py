@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -209,10 +210,40 @@ async def create_pago(
     orden = await db.get(Orden, orden_id)
     if orden is None:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if orden.estado == "Cancelado":
+        raise HTTPException(status_code=409, detail="No se puede registrar un pago de una orden cancelada")
+    # Un solo pago confirmado por orden: evita dobles cobros accidentales.
+    pagado_id = (
+        await db.execute(
+            select(Pago.id).where(Pago.orden_id == orden_id, Pago.estado == "Pagado").limit(1)
+        )
+    ).scalar_one_or_none()
+    if pagado_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"La orden #{orden_id} ya tiene un pago confirmado (pago #{pagado_id}).",
+        )
+    # El monto debe coincidir con el total de la orden (coherencia contable). Si la
+    # orden no tiene total calculado, se acepta el monto indicado.
+    if orden.total is not None and Decimal(str(payload.monto)) != Decimal(str(orden.total)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El monto ({payload.monto}) no coincide con el total de la orden ({orden.total}).",
+        )
     pago = Pago(orden_id=orden_id, **payload.model_dump())
     db.add(pago)
+    # Un pago manual confirmado libera la orden retenida por pago (mismo efecto que
+    # el checkout): 'Pendiente de Pago' → 'Pendiente' (despachable).
+    liberada = payload.estado == "Pagado" and orden.estado == "Pendiente de Pago"
+    if liberada:
+        pago.fecha_pago = datetime.now(timezone.utc)
+        orden.estado = "Pendiente"
     await db.commit()
     await db.refresh(pago)
+    if liberada:
+        evento = {"tipo": "pago", "orden_id": orden.id, "estado": "Pagado"}
+        await publish(canal_cliente(orden.cliente_id), evento)
+        await publish(CANAL_STAFF, {"tipo": "orden", "accion": "estado", "orden_id": orden.id, "estado": orden.estado})
     return pago
 
 

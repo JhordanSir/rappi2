@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useUsuarios, useRoles, useApiMutation } from "@/api/hooks";
+import { useRoles, useApiMutation, useDebouncedValue, usePaginated } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { Usuario } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -14,8 +14,11 @@ import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
+import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
 import { formatDate, initials } from "@/lib/utils";
+
+const PAGE_SIZE = 20;
 
 export default function UsuariosPage() {
   const { can } = useAuth();
@@ -25,22 +28,25 @@ export default function UsuariosPage() {
   const [editing, setEditing] = useState<Usuario | null>(null);
   const [viewing, setViewing] = useState<Usuario | null>(null);
   const [toDelete, setToDelete] = useState<Usuario | null>(null);
-  const { data, isLoading } = useUsuarios({ limit: 200 });
+  const [page, setPage] = useState(0);
+  const dq = useDebouncedValue(search.trim());
+  // Al cambiar filtros o búsqueda volvemos a la primera página.
+  useEffect(() => setPage(0), [dq, estado]);
+  // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
+  const { data, isLoading } = usePaginated<Usuario>("usuarios", "/usuarios/", {
+    skip: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    ...(dq ? { q: dq } : {}),
+    ...(estado !== "todos" ? { activo: estado === "activos" } : {}),
+  });
   const { data: roles } = useRoles();
   const writable = can("usuarios", "write");
   // Invalida tambien conductores/clientes: (des)activar un usuario (des)activa en cascada sus fichas (P6).
   const del = useApiMutation((id: number) => api.delete(`/usuarios/${id}`), ["usuarios", "conductores", "clientes"]);
   const reactivar = useApiMutation((id: number) => api.patch(`/usuarios/${id}`, { activo: true }), ["usuarios", "conductores", "clientes"]);
 
-  const rows = useMemo(
-    () =>
-      (data ?? []).filter((u) => {
-        const coincide = !search || u.username.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
-        const porEstado = estado === "todos" || (estado === "activos" ? u.activo : !u.activo);
-        return coincide && porEstado;
-      }),
-    [data, search, estado],
-  );
+  const rows = data?.items;
+  const total = data?.total ?? 0;
   const rolName = (id: number) => roles?.find((r) => r.id === id)?.nombre ?? `#${id}`;
 
   return (
@@ -63,6 +69,7 @@ export default function UsuariosPage() {
           rows={rows}
           loading={isLoading}
           rowKey={(u) => u.id}
+          footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
           columns={[
             { header: "Usuario", cell: (u) => (
               <div className="flex items-center gap-3">

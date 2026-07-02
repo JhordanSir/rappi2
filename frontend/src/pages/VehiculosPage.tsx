@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Eye } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useVehiculos, useApiMutation } from "@/api/hooks";
+import { useApiMutation, useDebouncedValue, usePaginated } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { EstadoVehiculo, Vehiculo } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -14,10 +14,12 @@ import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
+import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
 import { formatNumber, formatDate } from "@/lib/utils";
 
 const ESTADOS: EstadoVehiculo[] = ["Operativo", "Mantenimiento", "Inactivo"];
+const PAGE_SIZE = 20;
 
 export default function VehiculosPage() {
   const { can } = useAuth();
@@ -26,14 +28,20 @@ export default function VehiculosPage() {
   const [editing, setEditing] = useState<Vehiculo | null>(null);
   const [viewing, setViewing] = useState<Vehiculo | null>(null);
   const [toDelete, setToDelete] = useState<Vehiculo | null>(null);
-  const { data, isLoading } = useVehiculos({ limit: 200 });
+  const [page, setPage] = useState(0);
+  const dq = useDebouncedValue(search.trim());
+  useEffect(() => setPage(0), [dq]);
+  // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
+  const { data, isLoading } = usePaginated<Vehiculo>("vehiculos", "/vehiculos/", {
+    skip: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    ...(dq ? { q: dq } : {}),
+  });
   const writable = can("vehiculos", "write");
   const del = useApiMutation((placa: string) => api.delete(`/vehiculos/${placa}`), ["vehiculos"]);
 
-  const rows = useMemo(
-    () => (data ?? []).filter((v) => !search || v.placa.toLowerCase().includes(search.toLowerCase()) || v.tipo.toLowerCase().includes(search.toLowerCase())),
-    [data, search],
-  );
+  const rows = data?.items;
+  const total = data?.total ?? 0;
 
   return (
     <div>
@@ -48,6 +56,7 @@ export default function VehiculosPage() {
           rows={rows}
           loading={isLoading}
           rowKey={(v) => v.placa}
+          footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
           columns={[
             { header: "Placa", cell: (v) => <span className="font-mono font-semibold text-slate-800">{v.placa}</span> },
             { header: "Tipo", cell: (v) => v.tipo },

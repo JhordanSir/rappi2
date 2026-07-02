@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import keycloak, { initKeycloak } from "@/auth/keycloak";
+import { tienePermiso } from "@/lib/permisos";
 import type { Usuario } from "@/types";
 
 interface AuthState {
@@ -58,12 +59,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void keycloak.logout({ redirectUri: window.location.origin + "/login" });
   };
 
-  const can = (recurso: string, accion: string): boolean => {
-    const permisos = user?.rol?.permisos ?? [];
-    return permisos.some(
-      (p) => (p.recurso === "*" || p.recurso === recurso) && (p.accion === "*" || p.accion === accion),
-    );
-  };
+  const can = (recurso: string, accion: string): boolean =>
+    tienePermiso(user?.rol?.permisos, recurso, accion);
 
   const value = useMemo<AuthState>(
     () => ({ user, loading, login, logout, can }),

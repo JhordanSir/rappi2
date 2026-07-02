@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, ArrowRight, MapPin, Flag, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
@@ -19,13 +19,16 @@ import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
 import { LocationPicker } from "@/components/map/MapView";
 import { formatMoney, formatDate, formatCoord } from "@/lib/utils";
 
-const ESTADOS: EstadoOrden[] = ["Pendiente", "En Proceso", "En Tránsito", "Entregado", "Cancelado"];
+const ESTADOS: EstadoOrden[] = ["Pendiente de Pago", "Pendiente", "En Proceso", "En Tránsito", "Entregado", "Cancelado"];
 const PAGE_SIZE = 20;
 
 export default function OrdenesPage() {
   const navigate = useNavigate();
   const { can, user } = useAuth();
-  const [estado, setEstado] = useState("");
+  // El filtro de estado puede venir en la URL (p. ej. el aviso de impagas del dashboard
+  // enlaza a /ordenes?estado=Pendiente de Pago).
+  const [searchParams] = useSearchParams();
+  const [estado, setEstado] = useState(searchParams.get("estado") ?? "");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);

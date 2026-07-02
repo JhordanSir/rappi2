@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Numeric, String
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -17,6 +17,10 @@ class Vehiculo(Base):
     estado = Column(String(20), default="Operativo", nullable=False)
     fecha_mantenimiento = Column(DateTime(timezone=True), nullable=True)
     activo = Column(Boolean, default=True, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("estado IN ('Operativo','Mantenimiento','Inactivo')", name="vehiculo_estado"),
+    )
 
     conductores = relationship("Conductor", back_populates="vehiculo")
     asignaciones = relationship("Asignacion", back_populates="vehiculo")

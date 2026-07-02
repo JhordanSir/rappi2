@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
@@ -6,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import invalidar_cache_permisos, require_permiso
 from core.database import get_db
+from core.pagination import paginate
 from core.security import hash_password
 from models.clientes import Cliente
 from models.conductores import Conductor
@@ -19,18 +21,23 @@ router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
 @router.get("/", response_model=list[UsuarioResponse])
 async def list_usuarios(
+    response: Response,
     skip: int = 0,
     limit: int = Query(50, le=200),
     activo: bool | None = None,
+    q: str | None = Query(None, description="Busca por username o email"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("usuarios", "read")),
 ):
     stmt = select(Usuario).options(selectinload(Usuario.rol).selectinload(Rol.permisos))
     if activo is not None:
         stmt = stmt.where(Usuario.activo == activo)
-    stmt = stmt.offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    if q:
+        patron = f"%{q.strip()}%"
+        stmt = stmt.where(or_(Usuario.username.ilike(patron), Usuario.email.ilike(patron)))
+    stmt = stmt.order_by(Usuario.id)
+    # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
+    return await paginate(db, stmt, response, skip, limit)
 
 
 @router.post("/", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import {
   Package,
   Truck,
@@ -7,6 +8,7 @@ import {
   Navigation,
   ShieldAlert,
   Boxes,
+  AlertTriangle,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -56,6 +58,21 @@ export default function DashboardPage() {
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Resumen operativo y comercial de la plataforma" />
+
+      {/* Órdenes retenidas por pago hace días: no se auto-cancelan; el staff decide. */}
+      {(kpi.ordenes_impagas_antiguas ?? 0) > 0 && (
+        <Link
+          to="/ordenes?estado=Pendiente%20de%20Pago"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 transition hover:bg-amber-100"
+        >
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
+          <span>
+            <strong>{formatNumber(kpi.ordenes_impagas_antiguas)}</strong>{" "}
+            {kpi.ordenes_impagas_antiguas === 1 ? "orden lleva" : "órdenes llevan"} más de{" "}
+            {kpi.pago_aviso_dias ?? 2} días en «Pendiente de Pago» — revísalas para cobrar o cancelar.
+          </span>
+        </Link>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Órdenes totales" value={formatNumber(totales.ordenes)} icon={<Package className="h-6 w-6" />} tone="brand" />

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
@@ -6,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import get_current_user, require_permiso
 from core.database import get_db
+from core.pagination import paginate
 from models.conductores import Conductor
 from models.usuarios import Usuario
 from models.vehiculos import Vehiculo
@@ -21,10 +23,12 @@ router = APIRouter(prefix="/conductores", tags=["conductores"])
 
 @router.get("/", response_model=list[ConductorResponse])
 async def list_conductores(
+    response: Response,
     skip: int = 0,
     limit: int = Query(50, le=200),
     activo: bool | None = True,
     disponibilidad: str | None = None,
+    q: str | None = Query(None, description="Busca por nombre o licencia"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("conductores", "read")),
 ):
@@ -33,9 +37,12 @@ async def list_conductores(
         stmt = stmt.where(Conductor.activo == activo)
     if disponibilidad is not None:
         stmt = stmt.where(Conductor.disponibilidad == disponibilidad)
-    stmt = stmt.offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    if q:
+        patron = f"%{q.strip()}%"
+        stmt = stmt.where(or_(Conductor.nombre.ilike(patron), Conductor.licencia.ilike(patron)))
+    stmt = stmt.order_by(Conductor.id)
+    # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
+    return await paginate(db, stmt, response, skip, limit)
 
 
 @router.post("/", response_model=ConductorResponse, status_code=status.HTTP_201_CREATED)
@@ -111,6 +118,21 @@ async def update_conductor(
         vehiculo = await db.get(Vehiculo, update["vehiculo_placa"])
         if vehiculo is None:
             raise HTTPException(status_code=400, detail="vehiculo_placa invalido")
+    # Reactivación coherente: el delete desactiva en cascada conductor→usuario; reactivar
+    # el conductor con el usuario aún inactivo dejaría una ficha operable sin login.
+    # Política: solo un admin reactiva usuarios (primero el usuario, luego la ficha).
+    if update.get("activo") and not conductor.activo:
+        usuario = await db.get(Usuario, conductor.usuario_id)
+        if usuario is not None and not usuario.activo:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"El usuario «{usuario.username}» vinculado está inactivo. "
+                    "Reactívalo primero desde Usuarios y luego reactiva al conductor."
+                ),
+            )
+        # Al volver a estar activo, vuelve al pool de despacho.
+        update.setdefault("disponibilidad", "Disponible")
     for k, v in update.items():
         setattr(conductor, k, v)
     await db.commit()

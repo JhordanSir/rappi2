@@ -153,6 +153,10 @@ services:
       - KEYCLOAK_AUDIENCE=${KEYCLOAK_AUDIENCE:-rappi2-backend}
       - AUDIT_ENABLED=${AUDIT_ENABLED:-true}
       - CORS_ORIGINS=${CORS_ORIGINS:-["*"]}
+      # Días tras los que una orden 'Pendiente de Pago' se resalta como antigua al staff.
+      - PAGO_AVISO_DIAS=${PAGO_AVISO_DIAS:-2}
+      # Nivel de logging de la aplicación (DEBUG/INFO/WARNING/ERROR).
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # URLs públicas (webhook de pago + back_urls de retorno)
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:-http://localhost:5173}
@@ -172,6 +176,14 @@ services:
       - SUNAT_API_TOKEN=${SUNAT_API_TOKEN:-}
       - SUNAT_TIMEOUT=${SUNAT_TIMEOUT:-6}
       - SUNAT_FALLO_ABIERTO=${SUNAT_FALLO_ABIERTO:-true}
+    # Sano = la app responde Y la BD contesta (GET /health hace SELECT 1). La imagen slim
+    # no trae curl, así que se usa python+urllib. start_period cubre alembic + seed.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://localhost:'+os.environ.get('PORT','8000')+'/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 10
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -197,7 +209,9 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - api
+      # Espera a que la API esté SANA (no solo arrancada): alembic/seed pueden demorar.
+      api:
+        condition: service_healthy
     networks:
       - default
       - dokploy-network

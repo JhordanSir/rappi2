@@ -503,12 +503,17 @@ async def main():
             db.add(Incidencia(asignacion_id=finalizadas[0].id, tipo="Cierre forzado", severidad=2, origen="admin", notas="Entrega confirmada por teléfono con el cliente.", fecha=now - timedelta(hours=2)))
         await db.commit()
 
-        # pagos adicionales para la serie de ventas
+        # Pagos adicionales para la serie de ventas: SOLO sobre órdenes sin pago confirmado
+        # y sin repetir orden (sin reemplazo) — una orden nunca debe tener dos 'Pagado'.
         ordenes_all = (await db.execute(select(Orden))).scalars().all()
-        for _ in range(12):
-            o = random.choice(ordenes_all)
+        ya_pagadas = set(
+            (await db.execute(select(Pago.orden_id).where(Pago.estado == "Pagado"))).scalars().all()
+        )
+        candidatas = [o for o in ordenes_all if o.id not in ya_pagadas and o.estado != "Cancelado"]
+        for o in random.sample(candidatas, min(12, len(candidatas))):
             estado_pago = random.choices(["Pagado", "Pendiente", "Fallido"], weights=[7, 2, 1])[0]
-            db.add(Pago(orden_id=o.id, monto=round(random.uniform(40, 300), 2), estado=estado_pago, referencia_banco=f"REF-{random.randint(1000,9999)}", fecha_pago=now - timedelta(days=random.randint(0, 29), hours=random.randint(0, 23))))
+            monto = o.total if (estado_pago == "Pagado" and o.total is not None) else round(random.uniform(40, 300), 2)
+            db.add(Pago(orden_id=o.id, monto=monto, estado=estado_pago, referencia_banco=f"REF-{random.randint(1000,9999)}", fecha_pago=now - timedelta(days=random.randint(0, 29), hours=random.randint(0, 23))))
         await db.commit()
 
         # ---- Calificaciones: el cliente puntúa la entrega/conductor de las órdenes entregadas ----

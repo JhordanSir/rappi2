@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Table
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, Table
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -30,6 +30,10 @@ class Asignacion(Base):
     entrega_lat = Column(Numeric(9, 6), nullable=True)
     entrega_lon = Column(Numeric(9, 6), nullable=True)
     entrega_receptor = Column(String(120), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("estado IN ('Asignada','EnCurso','Finalizada','Cancelada')", name="asignacion_estado"),
+    )
 
     orden = relationship("Orden", back_populates="asignaciones")
     # Todas las órdenes agrupadas en esta asignación (incluye la principal).
