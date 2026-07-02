@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, Eye } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useUsuarios, useRoles, useApiMutation } from "@/api/hooks";
@@ -20,6 +20,7 @@ import { formatDate, initials } from "@/lib/utils";
 export default function UsuariosPage() {
   const { can } = useAuth();
   const [search, setSearch] = useState("");
+  const [estado, setEstado] = useState<"todos" | "activos" | "inactivos">("todos");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Usuario | null>(null);
   const [viewing, setViewing] = useState<Usuario | null>(null);
@@ -27,12 +28,18 @@ export default function UsuariosPage() {
   const { data, isLoading } = useUsuarios({ limit: 200 });
   const { data: roles } = useRoles();
   const writable = can("usuarios", "write");
-  // Invalida tambien conductores/clientes: desactivar un usuario desactiva en cascada sus fichas (P6).
+  // Invalida tambien conductores/clientes: (des)activar un usuario (des)activa en cascada sus fichas (P6).
   const del = useApiMutation((id: number) => api.delete(`/usuarios/${id}`), ["usuarios", "conductores", "clientes"]);
+  const reactivar = useApiMutation((id: number) => api.patch(`/usuarios/${id}`, { activo: true }), ["usuarios", "conductores", "clientes"]);
 
   const rows = useMemo(
-    () => (data ?? []).filter((u) => !search || u.username.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())),
-    [data, search],
+    () =>
+      (data ?? []).filter((u) => {
+        const coincide = !search || u.username.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
+        const porEstado = estado === "todos" || (estado === "activos" ? u.activo : !u.activo);
+        return coincide && porEstado;
+      }),
+    [data, search, estado],
   );
   const rolName = (id: number) => roles?.find((r) => r.id === id)?.nombre ?? `#${id}`;
 
@@ -43,7 +50,14 @@ export default function UsuariosPage() {
         subtitle="Cuentas de acceso y su rol asignado"
         actions={writable && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nuevo usuario</Button>}
       />
-      <Toolbar><SearchInput value={search} onChange={setSearch} placeholder="Buscar por usuario o email…" /></Toolbar>
+      <Toolbar>
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por usuario o email…" />
+        <Select value={estado} onChange={(e) => setEstado(e.target.value as "todos" | "activos" | "inactivos")} className="h-10 w-44">
+          <option value="todos">Todos los estados</option>
+          <option value="activos">Solo activos</option>
+          <option value="inactivos">Solo inactivos</option>
+        </Select>
+      </Toolbar>
       <Card>
         <DataTable
           rows={rows}
@@ -66,7 +80,20 @@ export default function UsuariosPage() {
               <div className="flex justify-end gap-1">
                 <Button size="icon" variant="ghost" onClick={() => setViewing(u)}><Eye className="h-4 w-4" /></Button>
                 {writable && <Button size="icon" variant="ghost" onClick={() => setEditing(u)}><Pencil className="h-4 w-4" /></Button>}
-                {writable && <Button size="icon" variant="ghost" className="text-rose-500" onClick={() => setToDelete(u)}><Trash2 className="h-4 w-4" /></Button>}
+                {writable && (u.activo ? (
+                  <Button size="icon" variant="ghost" className="text-rose-500" title="Desactivar" onClick={() => setToDelete(u)}><Trash2 className="h-4 w-4" /></Button>
+                ) : (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-emerald-600"
+                    title="Reactivar"
+                    loading={reactivar.isPending && reactivar.variables === u.id}
+                    onClick={() => reactivar.mutate(u.id, { onSuccess: () => toast.success("Usuario reactivado"), onError: (e) => toast.error(apiError(e)) })}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                ))}
               </div>
             )},
           ]}

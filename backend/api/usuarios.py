@@ -42,6 +42,21 @@ async def create_usuario(
     rol = await db.get(Rol, payload.rol_id)
     if rol is None:
         raise HTTPException(status_code=400, detail="rol_id invalido")
+    # Si ya existe alguien con ese correo, guiar al admin: si está INACTIVO no se puede
+    # recrear (el correo es único) → debe reactivarlo; si está activo, es duplicado real.
+    previo = (
+        await db.execute(select(Usuario).where(Usuario.email == payload.email))
+    ).scalar_one_or_none()
+    if previo is not None:
+        if not previo.activo:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Ya existe un usuario inactivo con el correo {payload.email} "
+                    f"(«{previo.username}»). Reactívalo desde la lista de usuarios."
+                ),
+            )
+        raise HTTPException(status_code=400, detail="El correo ya está en uso")
     usuario = Usuario(
         username=payload.username,
         email=payload.email,
@@ -94,9 +109,14 @@ async def update_usuario(
     if "password" in update:
         usuario.password_hash = hash_password(update.pop("password"))
     rol_anterior = usuario.rol_id
+    activo_anterior = usuario.activo
     for k, v in update.items():
         setattr(usuario, k, v)
     rol_cambio = usuario.rol_id != rol_anterior
+    # Reactivación (Inactivo -> Activo; solo un admin llega aquí): revivir la ficha
+    # Cliente/Conductor que el soft-delete desactivó en cascada. Si no, el usuario vuelve
+    # activo pero su ficha queda inactiva y no puede operar.
+    reactivado = usuario.activo and not activo_anterior
     rol_nuevo = None
     if rol_cambio:
         rol_nuevo = await db.get(Rol, usuario.rol_id)
@@ -105,9 +125,13 @@ async def update_usuario(
             raise HTTPException(status_code=400, detail="rol_id invalido")
     try:
         await db.flush()
-        # Al cambiar de rol, migrar/crear la ficha especializada (P3).
+        # Al cambiar de rol, migrar/crear la ficha especializada (P3); al reactivar,
+        # revivir la ficha del rol actual (espejo de la cascada de baja del delete, P6).
         if rol_cambio:
             await sincronizar_por_rol(db, usuario, rol_nuevo.nombre)
+        elif reactivado:
+            rol_actual = await db.get(Rol, usuario.rol_id)
+            await sincronizar_por_rol(db, usuario, rol_actual.nombre)
         await db.commit()
         await db.refresh(usuario)
     except IntegrityError:
