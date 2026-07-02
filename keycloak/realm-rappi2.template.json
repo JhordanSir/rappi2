@@ -11,6 +11,17 @@
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
+  "smtpServer": {
+    "host": "__SMTP_HOST__",
+    "port": "__SMTP_PORT__",
+    "from": "__SMTP_FROM__",
+    "fromDisplayName": "__SMTP_FROM_DISPLAY__",
+    "starttls": "__SMTP_STARTTLS__",
+    "ssl": "__SMTP_SSL__",
+    "auth": "__SMTP_AUTH__",
+    "user": "__SMTP_USER__",
+    "password": "__SMTP_PASSWORD__"
+  },
   "roles": {
     "realm": [
       { "name": "Admin", "description": "Acceso total al panel administrativo de Rappi2" },

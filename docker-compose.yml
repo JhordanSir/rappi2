@@ -42,14 +42,29 @@ services:
     restart: unless-stopped
 
   # Genera el realm a importar a partir de la plantilla, sustituyendo el dominio público
-  # del frontend (FRONTEND_BASE_URL) en los redirectUris/webOrigins. Se hace aquí porque
-  # la sustitución nativa de variables en el import de Keycloak no es fiable. Es un
-  # contenedor de un solo uso: escribe el realm en el volumen `keycloak_import` y termina.
+  # del frontend (FRONTEND_BASE_URL) en los redirectUris/webOrigins y la configuración SMTP
+  # (correos de recuperación de contraseña). Se hace aquí porque la sustitución nativa de
+  # variables en el import de Keycloak no es fiable. Es un contenedor de un solo uso:
+  # escribe el realm en el volumen `keycloak_import` y termina.
   keycloak-config:
     image: alpine:3
-    command: ["sh", "-c", "sed 's#__FRONTEND_URL__#${FRONTEND_BASE_URL:-http://localhost:5173}#g' /template/realm-rappi2.template.json > /import/realm-rappi2.json"]
+    entrypoint: ["/bin/sh", "/render-realm.sh"]
+    environment:
+      FRONTEND_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
+      # SMTP para los correos de Keycloak (recuperación de contraseña). Sin SMTP_HOST el
+      # realm se importa sin SMTP y el envío queda deshabilitado.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_DISPLAY: ${SMTP_FROM_DISPLAY:-Rappi2}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
     volumes:
       - ./keycloak/realm-rappi2.template.json:/template/realm-rappi2.template.json:ro
+      - ./keycloak/render-realm.sh:/render-realm.sh:ro
       - keycloak_import:/import
     restart: "no"
 
@@ -61,8 +76,10 @@ services:
     image: quay.io/keycloak/keycloak:25.0
     command: ["start-dev", "--import-realm"]
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # Admin del realm master (consola de Keycloak). La imagen 25.x usa estas variables;
+      # las KC_BOOTSTRAP_ADMIN_* son de Keycloak 26+ y en 25 se ignoran (no se crea admin).
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
       # URL pública con la que el navegador ve a Keycloak (issuer del token y base de
