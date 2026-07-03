@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "./Feedback";
 
@@ -7,6 +8,22 @@ export interface Column<T> {
   cell: (row: T) => ReactNode;
   className?: string;
   align?: "left" | "right" | "center";
+  /** Campo de ordenamiento server-side (parámetro `orden_por`). Si se define y la
+   *  tabla recibe `onSort`, la cabecera se vuelve clicable (estilo Excel). */
+  sortKey?: string;
+}
+
+export interface SortState {
+  key: string;
+  dir: "asc" | "desc";
+}
+
+/** Alterna el sort de una columna: sin orden → asc → desc → sin orden. Úsalo en las
+ *  páginas para mantener el patrón consistente. */
+export function toggleSort(actual: SortState | null, key: string): SortState | null {
+  if (actual?.key !== key) return { key, dir: "asc" };
+  if (actual.dir === "asc") return { key, dir: "desc" };
+  return null;
 }
 
 export function DataTable<T>({
@@ -17,6 +34,8 @@ export function DataTable<T>({
   empty,
   onRowClick,
   footer,
+  sort,
+  onSort,
 }: {
   columns: Column<T>[];
   rows: T[] | undefined;
@@ -26,6 +45,10 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
   /** Pie de tabla, p. ej. controles de paginación. */
   footer?: ReactNode;
+  /** Orden activo (server-side) para pintar el indicador en la cabecera. */
+  sort?: SortState | null;
+  /** Clic en una cabecera ordenable; la página decide (normalmente `toggleSort`). */
+  onSort?: (key: string) => void;
 }) {
   return (
     <div>
@@ -33,19 +56,36 @@ export function DataTable<T>({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-left">
-            {columns.map((c, i) => (
-              <th
-                key={i}
-                className={cn(
-                  "whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500",
-                  c.align === "right" && "text-right",
-                  c.align === "center" && "text-center",
-                  c.className,
-                )}
-              >
-                {c.header}
-              </th>
-            ))}
+            {columns.map((c, i) => {
+              const sortable = !!c.sortKey && !!onSort;
+              const activo = sortable && sort?.key === c.sortKey;
+              return (
+                <th
+                  key={i}
+                  onClick={sortable ? () => onSort!(c.sortKey!) : undefined}
+                  title={sortable ? "Ordenar por esta columna" : undefined}
+                  className={cn(
+                    "whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500",
+                    c.align === "right" && "text-right",
+                    c.align === "center" && "text-center",
+                    sortable && "cursor-pointer select-none hover:text-slate-700",
+                    activo && "text-brand-700",
+                    c.className,
+                  )}
+                >
+                  <span className={cn("inline-flex items-center gap-1", c.align === "right" && "flex-row-reverse")}>
+                    {c.header}
+                    {sortable && (
+                      activo ? (
+                        sort!.dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 opacity-40" />
+                      )
+                    )}
+                  </span>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>

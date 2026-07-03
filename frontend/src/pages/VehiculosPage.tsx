@@ -8,7 +8,7 @@ import type { EstadoVehiculo, Vehiculo } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/Table";
+import { DataTable, toggleSort, type SortState } from "@/components/ui/Table";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
@@ -35,7 +35,8 @@ export default function VehiculosPage() {
   const dq = useDebouncedValue(search.trim());
   const dTipo = useDebouncedValue(tipo.trim());
   const dCapMin = useDebouncedValue(capMin.trim());
-  useEffect(() => setPage(0), [dq, estado, dTipo, dCapMin]);
+  const [sort, setSort] = useState<SortState | null>(null);
+  useEffect(() => setPage(0), [dq, estado, dTipo, dCapMin, sort]);
   // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
   const { data, isLoading } = usePaginated<Vehiculo>("vehiculos", "/vehiculos/", {
     skip: page * PAGE_SIZE,
@@ -44,6 +45,7 @@ export default function VehiculosPage() {
     ...(estado ? { estado } : {}),
     ...(dTipo ? { tipo: dTipo } : {}),
     ...(dCapMin && !isNaN(Number(dCapMin)) ? { capacidad_min: Number(dCapMin) } : {}),
+    ...(sort ? { orden_por: sort.key, dir: sort.dir } : {}),
   });
   const writable = can("vehiculos", "write");
   const del = useApiMutation((placa: string) => api.delete(`/vehiculos/${placa}`), ["vehiculos"]);
@@ -73,12 +75,14 @@ export default function VehiculosPage() {
           loading={isLoading}
           rowKey={(v) => v.placa}
           footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
+          sort={sort}
+          onSort={(k) => setSort((s) => toggleSort(s, k))}
           columns={[
-            { header: "Placa", cell: (v) => <span className="font-mono font-semibold text-slate-800">{v.placa}</span> },
-            { header: "Tipo", cell: (v) => v.tipo },
-            { header: "Capacidad", align: "right", cell: (v) => `${formatNumber(v.capacidad_kg)} kg` },
+            { header: "Placa", sortKey: "placa", cell: (v) => <span className="font-mono font-semibold text-slate-800">{v.placa}</span> },
+            { header: "Tipo", sortKey: "tipo", cell: (v) => v.tipo },
+            { header: "Capacidad", sortKey: "capacidad_kg", align: "right", cell: (v) => `${formatNumber(v.capacidad_kg)} kg` },
             { header: "Dimensiones", cell: (v) => (v.largo_cm && v.ancho_cm && v.alto_cm) ? <span className="font-mono text-xs text-slate-500">{`${v.largo_cm}×${v.ancho_cm}×${v.alto_cm} cm`}</span> : <span className="text-slate-300">—</span> },
-            { header: "Estado", cell: (v) => <StatusBadge kind="vehiculo" value={v.estado} /> },
+            { header: "Estado", sortKey: "estado", cell: (v) => <StatusBadge kind="vehiculo" value={v.estado} /> },
             { header: "Activo", cell: (v) => <Badge tone={v.activo ? "green" : "gray"}>{v.activo ? "Sí" : "No"}</Badge> },
             { header: "", align: "right", cell: (v) => (
               <div className="flex justify-end gap-1">

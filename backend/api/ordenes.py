@@ -11,7 +11,7 @@ from decimal import Decimal
 from api.dependencies import UserScope, get_mongo_db, get_scope, orden_en_alcance, require_permiso
 from core.database import get_db
 from core.estados import TRANSICIONES_ORDEN, validar_transicion
-from core.pagination import paginate
+from core.pagination import ordenar, paginate
 from core.realtime import CANAL_STAFF, canal_cliente, publish
 from models.asignaciones import Asignacion, asignacion_ordenes
 from models.clientes import Cliente
@@ -32,6 +32,16 @@ from services.pricing_service import cotizar_orden as cotizar_orden_precio
 from services.route_planner import autogenerar_ruta
 
 router = APIRouter(prefix="/ordenes", tags=["ordenes"])
+
+# Campos ordenables desde la UI (clic en cabecera). Whitelist: ver core/pagination.ordenar.
+_ORDENABLES = {
+    "id": Orden.id,
+    "estado": Orden.estado,
+    "total": Orden.total,
+    "fecha_creacion": Orden.fecha_creacion,
+    "cliente_id": Orden.cliente_id,
+    "nivel_servicio": Orden.nivel_servicio,
+}
 
 
 async def _get_orden_full(db: AsyncSession, orden_id: int) -> Orden | None:
@@ -83,6 +93,8 @@ async def list_ordenes(
     hasta: datetime | None = Query(None, description="fecha_creacion <= hasta"),
     nivel_servicio: str | None = None,
     distrito: str | None = Query(None, description="Distrito de origen O destino (parcial)"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("ordenes", "read")),
@@ -125,7 +137,7 @@ async def list_ordenes(
         if termino.isdigit():
             condiciones.append(Orden.id == int(termino))
         stmt = stmt.where(or_(*condiciones))
-    stmt = stmt.order_by(Orden.fecha_creacion.desc())
+    stmt = ordenar(stmt, orden_por, direccion, _ORDENABLES, por_defecto=Orden.fecha_creacion.desc())
     return await paginate(db, stmt, response, skip, limit)
 
 
@@ -149,7 +161,10 @@ async def create_orden(
                 detail="Tu usuario no esta vinculado a un cliente; contacta al administrador",
             )
         data["cliente_id"] = scope.cliente_id
-    cliente = await db.get(Cliente, data.get("cliente_id"))
+    # El staff sí debe indicar el cliente (el campo es opcional solo para el rol Cliente).
+    if data.get("cliente_id") is None:
+        raise HTTPException(status_code=400, detail="Indica el cliente de la orden (cliente_id)")
+    cliente = await db.get(Cliente, data["cliente_id"])
     if cliente is None or not cliente.activo:
         raise HTTPException(status_code=400, detail="cliente_id invalido o inactivo")
 

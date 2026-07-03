@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Truck, Star, ChevronRight, PackageCheck, Navigation } from "lucide-react";
@@ -43,6 +44,7 @@ function AsignacionCard({ a, onClick }: { a: Asignacion; onClick: () => void }) 
 
 export default function ConductorHome() {
   const navigate = useNavigate();
+  const [verTodo, setVerTodo] = useState(false);
   const { data: me } = useQuery({
     queryKey: ["conductor-me"],
     queryFn: async () => (await api.get<Conductor>("/conductores/me")).data,
@@ -100,13 +102,22 @@ export default function ConductorHome() {
       {historial.length > 0 && (
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-stone-400">
-            <PackageCheck className="h-4 w-4" /> Historial
+            <PackageCheck className="h-4 w-4" /> Historial <span className="normal-case text-stone-500">({historial.length})</span>
           </h2>
           <div className="space-y-2">
-            {historial.slice(0, 10).map((a) => (
+            {(verTodo ? historial : historial.slice(0, 10)).map((a) => (
               <AsignacionCard key={a.id} a={a} onClick={() => navigate(`/asignacion/${a.id}`)} />
             ))}
           </div>
+          {historial.length > 10 && (
+            <button
+              type="button"
+              onClick={() => setVerTodo((v) => !v)}
+              className="mt-2 w-full rounded-2xl border border-dashed border-stone-700 bg-stone-800/50 p-3 text-center text-sm text-stone-300 hover:bg-stone-800"
+            >
+              {verTodo ? "Mostrar menos" : `Ver todo el historial (${historial.length})`}
+            </button>
+          )}
         </section>
       )}
     </div>

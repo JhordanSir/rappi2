@@ -8,7 +8,7 @@ import type { Conductor, DisponibilidadConductor } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/Table";
+import { DataTable, toggleSort, type SortState } from "@/components/ui/Table";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
@@ -32,7 +32,8 @@ export default function ConductoresPage() {
   const [dispo, setDispo] = useState("");
   const [soloActivos, setSoloActivos] = useState(true);
   const dq = useDebouncedValue(search.trim());
-  useEffect(() => setPage(0), [dq, dispo, soloActivos]);
+  const [sort, setSort] = useState<SortState | null>(null);
+  useEffect(() => setPage(0), [dq, dispo, soloActivos, sort]);
   // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
   const { data, isLoading } = usePaginated<Conductor>("conductores", "/conductores/", {
     skip: page * PAGE_SIZE,
@@ -40,6 +41,7 @@ export default function ConductoresPage() {
     activo: soloActivos,
     ...(dq ? { q: dq } : {}),
     ...(dispo ? { disponibilidad: dispo } : {}),
+    ...(sort ? { orden_por: sort.key, dir: sort.dir } : {}),
   });
   const writable = can("conductores", "write");
   const deletable = can("conductores", "delete");
@@ -73,8 +75,10 @@ export default function ConductoresPage() {
           loading={isLoading}
           rowKey={(c) => c.id}
           footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
+          sort={sort}
+          onSort={(k) => setSort((s) => toggleSort(s, k))}
           columns={[
-            { header: "Conductor", cell: (c) => (
+            { header: "Conductor", sortKey: "nombre", cell: (c) => (
               <div>
                 <p className="font-medium text-slate-800">{c.nombre}</p>
                 <p className="flex items-center gap-1 text-xs text-slate-500"><IdCard className="h-3 w-3" /> {c.licencia}</p>
@@ -86,8 +90,8 @@ export default function ConductoresPage() {
                 <p className="text-xs text-slate-500">{c.usuario.email}</p>
               </div>
             ) : <span className="text-slate-400">—</span> },
-            { header: "Vehículo", cell: (c) => c.vehiculo_placa ? <span className="inline-flex items-center gap-1 font-mono text-xs"><Truck className="h-3.5 w-3.5 text-slate-400" /> {c.vehiculo_placa}</span> : <span className="text-slate-400">Sin vehículo</span> },
-            { header: "Disponibilidad", cell: (c) => <StatusBadge kind="dispo" value={c.disponibilidad} /> },
+            { header: "Vehículo", sortKey: "vehiculo_placa", cell: (c) => c.vehiculo_placa ? <span className="inline-flex items-center gap-1 font-mono text-xs"><Truck className="h-3.5 w-3.5 text-slate-400" /> {c.vehiculo_placa}</span> : <span className="text-slate-400">Sin vehículo</span> },
+            { header: "Disponibilidad", sortKey: "disponibilidad", cell: (c) => <StatusBadge kind="dispo" value={c.disponibilidad} /> },
             { header: "Estado", cell: (c) => <Badge tone={c.activo ? "green" : "gray"}>{c.activo ? "Activo" : "Inactivo"}</Badge> },
             { header: "", align: "right", cell: (c) => (
               <div className="flex justify-end gap-1">

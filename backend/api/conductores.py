@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import get_current_user, require_permiso
 from core.database import get_db
-from core.pagination import paginate
+from core.pagination import ordenar, paginate
 from models.conductores import Conductor
 from models.usuarios import Usuario
 from models.vehiculos import Vehiculo
@@ -29,6 +29,8 @@ async def list_conductores(
     activo: bool | None = True,
     disponibilidad: str | None = None,
     q: str | None = Query(None, description="Busca por nombre o licencia"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("conductores", "read")),
 ):
@@ -40,7 +42,13 @@ async def list_conductores(
     if q:
         patron = f"%{q.strip()}%"
         stmt = stmt.where(or_(Conductor.nombre.ilike(patron), Conductor.licencia.ilike(patron)))
-    stmt = stmt.order_by(Conductor.id)
+    stmt = ordenar(
+        stmt, orden_por, direccion,
+        {"id": Conductor.id, "nombre": Conductor.nombre, "licencia": Conductor.licencia,
+         "disponibilidad": Conductor.disponibilidad, "vehiculo_placa": Conductor.vehiculo_placa,
+         "activo": Conductor.activo},
+        por_defecto=Conductor.id,
+    )
     # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
     return await paginate(db, stmt, response, skip, limit)
 

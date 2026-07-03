@@ -128,7 +128,11 @@ async def ensure_usuario_from_claims(db: AsyncSession, claims: Dict[str, Any]) -
     email = (claims.get("email") or "").strip().lower() or None
     nombre = claims.get("name")
     avatar = claims.get("picture")
-    rol_nombre = rol_principal(claims)
+    # El catálogo de roles de la BD hace válidos también los roles PERSONALIZADOS
+    # (Despachador, Auditor…): sin esto, rol_principal degradaba a 'Cliente' a todo
+    # usuario cuyo realm-role no fuera Admin/Conductor/Cliente.
+    validos = set((await db.execute(select(Rol.nombre))).scalars().all())
+    rol_nombre = rol_principal(claims, validos)
 
     rol = await _rol_por_nombre(db, rol_nombre)
     if rol is None:

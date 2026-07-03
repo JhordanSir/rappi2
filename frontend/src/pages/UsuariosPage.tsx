@@ -8,7 +8,7 @@ import type { Usuario } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/Table";
+import { DataTable, toggleSort, type SortState } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
@@ -29,15 +29,19 @@ export default function UsuariosPage() {
   const [viewing, setViewing] = useState<Usuario | null>(null);
   const [toDelete, setToDelete] = useState<Usuario | null>(null);
   const [page, setPage] = useState(0);
+  const [rolFiltro, setRolFiltro] = useState("");
+  const [sort, setSort] = useState<SortState | null>(null);
   const dq = useDebouncedValue(search.trim());
   // Al cambiar filtros o búsqueda volvemos a la primera página.
-  useEffect(() => setPage(0), [dq, estado]);
+  useEffect(() => setPage(0), [dq, estado, rolFiltro, sort]);
   // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
   const { data, isLoading } = usePaginated<Usuario>("usuarios", "/usuarios/", {
     skip: page * PAGE_SIZE,
     limit: PAGE_SIZE,
     ...(dq ? { q: dq } : {}),
     ...(estado !== "todos" ? { activo: estado === "activos" } : {}),
+    ...(rolFiltro ? { rol: rolFiltro } : {}),
+    ...(sort ? { orden_por: sort.key, dir: sort.dir } : {}),
   });
   const { data: roles } = useRoles();
   const writable = can("usuarios", "write");
@@ -63,6 +67,10 @@ export default function UsuariosPage() {
           <option value="activos">Solo activos</option>
           <option value="inactivos">Solo inactivos</option>
         </Select>
+        <Select value={rolFiltro} onChange={(e) => setRolFiltro(e.target.value)} className="h-10 w-auto" title="Filtrar por rol">
+          <option value="">Todos los roles</option>
+          {(roles ?? []).map((r) => <option key={r.id} value={r.nombre}>{r.nombre}</option>)}
+        </Select>
       </Toolbar>
       <Card>
         <DataTable
@@ -70,8 +78,10 @@ export default function UsuariosPage() {
           loading={isLoading}
           rowKey={(u) => u.id}
           footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
+          sort={sort}
+          onSort={(k) => setSort((s) => toggleSort(s, k))}
           columns={[
-            { header: "Usuario", cell: (u) => (
+            { header: "Usuario", sortKey: "username", cell: (u) => (
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">{initials(u.username)}</div>
                 <div>
@@ -81,8 +91,8 @@ export default function UsuariosPage() {
               </div>
             )},
             { header: "Rol", cell: (u) => <Badge tone="indigo">{u.rol?.nombre ?? rolName(u.rol_id)}</Badge> },
-            { header: "Estado", cell: (u) => <Badge tone={u.activo ? "green" : "gray"}>{u.activo ? "Activo" : "Inactivo"}</Badge> },
-            { header: "Registro", cell: (u) => <span className="text-slate-500">{formatDate(u.fecha_registro, false)}</span> },
+            { header: "Estado", sortKey: "activo", cell: (u) => <Badge tone={u.activo ? "green" : "gray"}>{u.activo ? "Activo" : "Inactivo"}</Badge> },
+            { header: "Registro", sortKey: "fecha_registro", cell: (u) => <span className="text-slate-500">{formatDate(u.fecha_registro, false)}</span> },
             { header: "", align: "right", cell: (u) => (
               <div className="flex justify-end gap-1">
                 <Button size="icon" variant="ghost" onClick={() => setViewing(u)}><Eye className="h-4 w-4" /></Button>

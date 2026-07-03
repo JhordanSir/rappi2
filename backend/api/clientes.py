@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import UserScope, get_scope, require_permiso
 from core.database import get_db
-from core.pagination import paginate
+from core.pagination import ordenar, paginate
 from models.clientes import Cliente, ClienteDireccion
 from models.usuarios import Usuario
 from schemas.clientes import (
@@ -44,6 +44,8 @@ async def list_clientes(
     q: str | None = Query(None, description="Busca por nombre, email, teléfono o documento"),
     desde: datetime | None = Query(None, description="fecha_registro >= desde"),
     hasta: datetime | None = Query(None, description="fecha_registro <= hasta"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "read")),
@@ -69,7 +71,12 @@ async def list_clientes(
             Cliente.telefono.ilike(patron),
             Cliente.cc_id.ilike(patron),
         ))
-    stmt = stmt.order_by(Cliente.id)
+    stmt = ordenar(
+        stmt, orden_por, direccion,
+        {"id": Cliente.id, "nombre": Cliente.nombre, "email": Cliente.email,
+         "fecha_registro": Cliente.fecha_registro, "activo": Cliente.activo},
+        por_defecto=Cliente.id,
+    )
     # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
     return await paginate(db, stmt, response, skip, limit)
 

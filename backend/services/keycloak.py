@@ -17,11 +17,11 @@ from jose.exceptions import JWTError
 
 from core.config import settings
 
-# Roles de la aplicación. Keycloak puede traer roles propios (offline_access,
-# uma_authorization, default-roles-*) que ignoramos.
+# Roles base de la aplicación. Keycloak puede traer roles propios (offline_access,
+# uma_authorization, default-roles-*) que ignoramos. Los roles PERSONALIZADOS creados
+# en "Roles & Permisos" (Despachador, Auditor…) también son válidos: los llamadores
+# pasan el catálogo vigente de la BD en `validos`.
 APP_ROLES = ("Admin", "Conductor", "Cliente")
-# Precedencia para elegir el rol efectivo cuando el token trae varios.
-_ROL_PRECEDENCIA = ("Admin", "Conductor", "Cliente")
 
 _JWKS_TTL_SECONDS = 3600
 _jwks_cache: Dict[str, Any] = {"fetched_at": 0.0, "keys": {}}
@@ -83,21 +83,31 @@ async def validate_token(token: str) -> Dict[str, Any]:
     )
 
 
-def roles_de(claims: Dict[str, Any]) -> List[str]:
-    """Roles de la app presentes en el token (`realm_access.roles`)."""
-    realm_roles = (claims.get("realm_access") or {}).get("roles") or []
-    return [r for r in realm_roles if r in APP_ROLES]
+def roles_de(claims: Dict[str, Any], validos: Optional[set] = None) -> List[str]:
+    """Roles de la app presentes en el token (`realm_access.roles`).
 
-
-def rol_principal(claims: Dict[str, Any]) -> str:
-    """Rol efectivo del usuario según precedencia Admin > Conductor > Cliente.
-
-    Si el token no trae ningún rol de la app, por defecto es 'Cliente'.
+    `validos` amplía el catálogo con los roles personalizados de la BD; sin él solo
+    se reconocen los roles base (compatibilidad).
     """
-    roles = set(roles_de(claims))
-    for rol in _ROL_PRECEDENCIA:
-        if rol in roles:
-            return rol
+    permitidos = set(APP_ROLES) | (validos or set())
+    realm_roles = (claims.get("realm_access") or {}).get("roles") or []
+    return [r for r in realm_roles if r in permitidos]
+
+
+def rol_principal(claims: Dict[str, Any], validos: Optional[set] = None) -> str:
+    """Rol efectivo del usuario cuando el token trae varios.
+
+    Precedencia: Admin > rol staff personalizado (≠ Cliente/Conductor) > Conductor >
+    Cliente. Sin ningún rol reconocido, por defecto 'Cliente'.
+    """
+    roles = set(roles_de(claims, validos))
+    if "Admin" in roles:
+        return "Admin"
+    personalizados = sorted(r for r in roles if r not in APP_ROLES)
+    if personalizados:
+        return personalizados[0]
+    if "Conductor" in roles:
+        return "Conductor"
     return "Cliente"
 
 

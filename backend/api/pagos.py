@@ -3,13 +3,14 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from api.dependencies import UserScope, get_mongo_db, get_scope, orden_en_alcance, require_permiso
 from core.config import settings
 from core.database import get_db
-from core.pagination import paginate
+from core.pagination import ordenar, paginate
 from core.realtime import CANAL_STAFF, canal_cliente, publish
 from models.ordenes import Orden, Pago
 from schemas.mongo_notificaciones import NotificacionIn
@@ -174,6 +175,9 @@ async def list_pagos(
     proveedor: str | None = Query(None, description="Pasarela ('mercadopago', …) o 'manual' (staff)"),
     desde: datetime | None = None,
     hasta: datetime | None = None,
+    q: str | None = Query(None, description="Busca por #orden o referencia bancaria"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("pagos", "read")),
@@ -194,7 +198,24 @@ async def list_pagos(
         stmt = stmt.where(Pago.fecha_pago >= desde)
     if hasta is not None:
         stmt = stmt.where(Pago.fecha_pago <= hasta)
-    stmt = stmt.order_by(Pago.fecha_pago.desc())
+    if q:
+        termino = q.strip().lstrip("#")
+        condiciones = [Pago.referencia_banco.ilike(f"%{termino}%")]
+        if termino.isdigit():
+            condiciones.append(Pago.orden_id == int(termino))
+        stmt = stmt.where(or_(*condiciones))
+    stmt = ordenar(
+        stmt, orden_por, direccion,
+        {
+            "id": Pago.id,
+            "orden_id": Pago.orden_id,
+            "monto": Pago.monto,
+            "estado": Pago.estado,
+            "fecha_pago": Pago.fecha_pago,
+            "proveedor": Pago.proveedor,
+        },
+        por_defecto=Pago.fecha_pago.desc(),
+    )
     return await paginate(db, stmt, response, skip, limit)
 
 

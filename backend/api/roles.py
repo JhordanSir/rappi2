@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from api.dependencies import invalidar_cache_permisos, require_permiso
 from core.database import get_db
 from models.roles import Permiso, Rol
+from services import keycloak_admin
 from schemas.roles import (
     PermisoCreate,
     PermisoResponse,
@@ -62,6 +63,10 @@ async def create_rol(
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("roles", "write")),
 ):
+    # El rol debe existir TAMBIÉN como realm-role en Keycloak: el rol del usuario viaja
+    # en el token, así que un rol solo-local sería invisible al autenticar. Se crea
+    # primero allá (si falla → 503 y no queda un rol local inutilizable).
+    await keycloak_admin.asegurar_rol_realm(payload.nombre)
     rol = Rol(nombre=payload.nombre)
     db.add(rol)
     try:
@@ -99,6 +104,12 @@ async def update_rol(
     if rol is None:
         raise HTTPException(status_code=404, detail="Rol no encontrado")
     update = payload.model_dump(exclude_unset=True)
+    nombre_anterior = rol.nombre
+    renombrado = bool(update.get("nombre")) and update["nombre"] != nombre_anterior
+    # Renombrar = migrar el realm-role en Keycloak (crear nuevo, reasignar miembros,
+    # borrar viejo) ANTES del commit local: si Keycloak falla, nada queda a medias.
+    if renombrado:
+        await keycloak_admin.renombrar_rol_realm(nombre_anterior, update["nombre"])
     for k, v in update.items():
         setattr(rol, k, v)
     try:
@@ -122,6 +133,7 @@ async def delete_rol(
     rol = await db.get(Rol, rol_id)
     if rol is None:
         raise HTTPException(status_code=404, detail="Rol no encontrado")
+    nombre = rol.nombre
     await db.delete(rol)
     try:
         await db.commit()
@@ -131,6 +143,8 @@ async def delete_rol(
             status_code=409,
             detail="No se puede eliminar el rol: tiene usuarios asociados. Reasigna esos usuarios a otro rol antes de borrarlo.",
         )
+    # Retirar también el realm-role de Keycloak (best-effort: el rol local ya no existe).
+    await keycloak_admin.eliminar_rol_realm(nombre)
     invalidar_cache_permisos(rol_id)
 
 

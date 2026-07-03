@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marker, Polyline, Popup } from "react-leaflet";
-import { ArrowLeft, Play, Camera, AlertTriangle, MapPin, Radio, CheckCircle2, XCircle, Package } from "lucide-react";
+import { ArrowLeft, Play, Camera, AlertTriangle, MapPin, Radio, CheckCircle2, RefreshCw, XCircle, Package } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { useSeguimiento } from "@/api/hooks";
@@ -37,15 +37,26 @@ export default function AsignacionDetalle() {
   const enCurso = asg?.estado === "EnCurso";
   const [gpsOn, setGpsOn] = useState(false);
   const [showInc, setShowInc] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // Ocupado POR ACCIÓN ("iniciar", "entregar-{id}", "fallar-{id}", "incidencia"): cada
+  // botón muestra su propio estado y las acciones no se bloquean entre sí.
+  const [busy, setBusy] = useState<string | null>(null);
   const [inc, setInc] = useState({ tipo: TIPOS_INCIDENCIA[0], notas: "" });
   const [incFile, setIncFile] = useState<File | null>(null);
-  // Entrega por destino: id del destino en curso + receptor.
+  // Entrega por destino: id del destino en curso + receptor + foto elegida (con preview:
+  // el conductor VE la foto antes de confirmar; nada se envía al elegir el archivo).
   const [entregando, setEntregando] = useState<number | null>(null);
   const [receptor, setReceptor] = useState("");
-  // No entrega: id del destino + motivo.
+  const [fotoEntrega, setFotoEntrega] = useState<File | null>(null);
+  // No entrega: id del destino + motivo + foto de respaldo.
   const [fallando, setFallando] = useState<number | null>(null);
   const [motivoFallo, setMotivoFallo] = useState("");
+  const [fotoFallo, setFotoFallo] = useState<File | null>(null);
+
+  // Miniaturas de las fotos elegidas (se liberan al cambiar/desmontar).
+  const previewEntrega = useMemo(() => (fotoEntrega ? URL.createObjectURL(fotoEntrega) : null), [fotoEntrega]);
+  const previewFallo = useMemo(() => (fotoFallo ? URL.createObjectURL(fotoFallo) : null), [fotoFallo]);
+  useEffect(() => () => { if (previewEntrega) URL.revokeObjectURL(previewEntrega); }, [previewEntrega]);
+  useEffect(() => () => { if (previewFallo) URL.revokeObjectURL(previewFallo); }, [previewFallo]);
 
   const { last, error: gpsError } = useGpsTracking({
     asignacionId,
@@ -61,75 +72,77 @@ export default function AsignacionDetalle() {
   };
 
   const iniciar = async () => {
-    setBusy(true);
+    setBusy("iniciar");
     try {
       await api.patch(`/asignaciones/${asignacionId}/iniciar`);
       toast.success("Entrega iniciada");
       setGpsOn(true);
       refresh();
-    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+    } catch (e) { toast.error(apiError(e)); } finally { setBusy(null); }
   };
 
-  // Entrega de un destino: sube la foto (obligatoria) + receptor y marca el destino.
-  const entregarDestino = async (destinoId: number, file: File) => {
+  /** Posición actual (o la última conocida) para adjuntar a la evidencia. */
+  const conPosicion = (accion: (lat: number | null, lon: number | null) => void) => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => accion(p.coords.latitude, p.coords.longitude),
+        () => accion(last?.lat ?? null, last?.lon ?? null),
+        { enableHighAccuracy: true, timeout: 8000 },
+      );
+    } else accion(last?.lat ?? null, last?.lon ?? null);
+  };
+
+  // Confirmación de entrega: se ejecuta SOLO al pulsar "Confirmar entrega" (la foto ya
+  // fue elegida y previsualizada — el conductor sabe exactamente qué está enviando).
+  const entregarDestino = async (destinoId: number) => {
     if (!receptor.trim()) return toast.error("Indica quién recibió");
-    setBusy(true);
-    const done = async (lat: number | null, lon: number | null) => {
+    if (!fotoEntrega) return toast.error("Toma la foto de la entrega");
+    setBusy(`entregar-${destinoId}`);
+    conPosicion(async (lat, lon) => {
       try {
         const fd = new FormData();
         fd.append("receptor", receptor.trim());
         if (lat != null) fd.append("lat", String(lat));
         if (lon != null) fd.append("lon", String(lon));
-        fd.append("archivos", file);
+        fd.append("archivos", fotoEntrega);
         await api.post(`/asignaciones/${asignacionId}/destinos/${destinoId}/entregar`, fd, {
           headers: { "Content-Type": "multipart/form-data" },
         });
-        toast.success("Destino entregado");
+        toast.success("✅ Entrega confirmada: la foto se subió correctamente");
         setEntregando(null);
         setReceptor("");
+        setFotoEntrega(null);
         refresh();
-      } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
-    };
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => done(p.coords.latitude, p.coords.longitude),
-        () => done(last?.lat ?? null, last?.lon ?? null),
-        { enableHighAccuracy: true, timeout: 8000 },
-      );
-    } else done(last?.lat ?? null, last?.lon ?? null);
+      } catch (e) { toast.error(apiError(e)); } finally { setBusy(null); }
+    });
   };
 
-  // No entrega: motivo + foto OBLIGATORIA (queda registrada como incidencia con evidencia).
-  const fallarDestino = async (destinoId: number, file: File) => {
+  // Confirmación de no entrega: motivo + foto de respaldo obligatoria (incidencia).
+  const fallarDestino = async (destinoId: number) => {
     if (!motivoFallo.trim()) return toast.error("Indica el motivo de la no entrega");
-    setBusy(true);
-    const done = async (lat: number | null, lon: number | null) => {
+    if (!fotoFallo) return toast.error("Toma la foto de respaldo");
+    setBusy(`fallar-${destinoId}`);
+    conPosicion(async (lat, lon) => {
       try {
         const fd = new FormData();
         fd.append("motivo", motivoFallo.trim());
         if (lat != null) fd.append("lat", String(lat));
         if (lon != null) fd.append("lon", String(lon));
-        fd.append("archivos", file);
+        fd.append("archivos", fotoFallo);
         await api.post(`/asignaciones/${asignacionId}/destinos/${destinoId}/fallar`, fd, {
           headers: { "Content-Type": "multipart/form-data" },
         });
         toast.success("No entrega registrada con evidencia");
         setFallando(null);
         setMotivoFallo("");
+        setFotoFallo(null);
         refresh();
-      } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
-    };
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => done(p.coords.latitude, p.coords.longitude),
-        () => done(last?.lat ?? null, last?.lon ?? null),
-        { enableHighAccuracy: true, timeout: 8000 },
-      );
-    } else done(last?.lat ?? null, last?.lon ?? null);
+      } catch (e) { toast.error(apiError(e)); } finally { setBusy(null); }
+    });
   };
 
   const reportarIncidencia = async () => {
-    setBusy(true);
+    setBusy("incidencia");
     try {
       const { data: creada } = await api.post<{ id: number }>("/incidencias/", { asignacion_id: asignacionId, tipo: inc.tipo, notas: inc.notas || null });
       // Evidencia opcional: si el conductor adjuntó una foto, súbela a la incidencia recién creada.
@@ -144,7 +157,7 @@ export default function AsignacionDetalle() {
       setShowInc(false);
       setInc({ tipo: TIPOS_INCIDENCIA[0], notas: "" });
       setIncFile(null);
-    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+    } catch (e) { toast.error(apiError(e)); } finally { setBusy(null); }
   };
 
   if (isLoading || !asg) return <PageLoader />;
@@ -185,7 +198,7 @@ export default function AsignacionDetalle() {
       )}
 
       {asg.estado === "Asignada" && (
-        <Button className="w-full" size="lg" loading={busy} onClick={iniciar}>
+        <Button className="w-full" size="lg" loading={busy === "iniciar"} onClick={iniciar}>
           <Play className="h-5 w-5" /> Iniciar entrega
         </Button>
       )}
@@ -220,9 +233,16 @@ export default function AsignacionDetalle() {
                     : p.estado === "Omitida"
                     ? <span className="flex items-center gap-1 text-xs text-stone-400"><XCircle className="h-5 w-5" /> No entregado</span>
                     : (
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="outline" onClick={() => { setEntregando(p.destino_id!); setFallando(null); setReceptor(""); }}>Entregar</Button>
-                        <Button size="sm" variant="ghost" className="text-rose-400" onClick={() => { setFallando(p.destino_id!); setEntregando(null); setMotivoFallo(""); }}>No entregar</Button>
+                      /* Acción principal prominente y la destructiva apartada: evita
+                         toques accidentales en móvil (antes iban pegados con gap-1). */
+                      <div className="flex items-center gap-3">
+                        <Button size="sm" variant="success" onClick={() => { setEntregando(p.destino_id!); setFallando(null); setReceptor(""); setFotoEntrega(null); }}>
+                          <CheckCircle2 className="h-4 w-4" /> Entregar
+                        </Button>
+                        <span className="h-5 w-px bg-stone-600" aria-hidden />
+                        <Button size="sm" variant="ghost" className="text-rose-400" onClick={() => { setFallando(p.destino_id!); setEntregando(null); setMotivoFallo(""); setFotoFallo(null); }}>
+                          No entregar
+                        </Button>
                       </div>
                     )}
                 </div>
@@ -231,12 +251,29 @@ export default function AsignacionDetalle() {
                     <Field label={<span className="text-stone-200">¿Quién recibió?</span>} required>
                       <Input value={receptor} onChange={(e) => setReceptor(e.target.value)} placeholder="Nombre del receptor" />
                     </Field>
-                    <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden
-                      onChange={(e) => e.target.files?.[0] && entregarDestino(p.destino_id!, e.target.files[0])} />
+                    <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden aria-label="Foto de la entrega"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) setFotoEntrega(f); e.target.value = ""; }} />
+                    {!fotoEntrega ? (
+                      <Button variant="outline" className="w-full" onClick={() => fileRef.current?.click()}>
+                        <Camera className="h-4 w-4" /> Tomar foto de la entrega
+                      </Button>
+                    ) : (
+                      /* Preview: el conductor VE la foto antes de confirmar (certeza de qué sube). */
+                      <div className="flex items-center gap-3 rounded-xl border border-stone-600 bg-stone-900/50 p-2">
+                        {previewEntrega && <img src={previewEntrega} alt="Foto de la entrega" className="h-16 w-16 rounded-lg object-cover" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1 text-xs text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Foto lista</p>
+                          <p className="truncate text-xs text-stone-400">{fotoEntrega.name}</p>
+                        </div>
+                        <Button size="sm" variant="ghost" onClick={() => fileRef.current?.click()}>
+                          <RefreshCw className="h-3.5 w-3.5" /> Cambiar
+                        </Button>
+                      </div>
+                    )}
                     <div className="flex gap-2">
-                      <Button variant="outline" className="flex-1" onClick={() => setEntregando(null)}>Cancelar</Button>
-                      <Button variant="success" className="flex-1" loading={busy} onClick={() => fileRef.current?.click()}>
-                        <Camera className="h-4 w-4" /> Foto y entregar
+                      <Button variant="outline" className="flex-1" onClick={() => { setEntregando(null); setFotoEntrega(null); }}>Cancelar</Button>
+                      <Button variant="success" className="flex-1" disabled={!fotoEntrega || !receptor.trim()} loading={busy === `entregar-${p.destino_id}`} onClick={() => entregarDestino(p.destino_id!)}>
+                        {busy === `entregar-${p.destino_id}` ? "Subiendo foto…" : "Confirmar entrega"}
                       </Button>
                     </div>
                   </div>
@@ -248,11 +285,27 @@ export default function AsignacionDetalle() {
                     </Field>
                     <p className="text-xs text-stone-400">Se registra como incidencia con evidencia: toma una foto de respaldo (ej. puerta cerrada).</p>
                     <input ref={fallarFileRef} type="file" accept="image/*" capture="environment" hidden aria-label="Foto de evidencia de no entrega"
-                      onChange={(e) => e.target.files?.[0] && fallarDestino(p.destino_id!, e.target.files[0])} />
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) setFotoFallo(f); e.target.value = ""; }} />
+                    {!fotoFallo ? (
+                      <Button variant="outline" className="w-full" onClick={() => fallarFileRef.current?.click()}>
+                        <Camera className="h-4 w-4" /> Tomar foto de respaldo
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-3 rounded-xl border border-stone-600 bg-stone-900/50 p-2">
+                        {previewFallo && <img src={previewFallo} alt="Foto de respaldo" className="h-16 w-16 rounded-lg object-cover" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1 text-xs text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Foto lista</p>
+                          <p className="truncate text-xs text-stone-400">{fotoFallo.name}</p>
+                        </div>
+                        <Button size="sm" variant="ghost" onClick={() => fallarFileRef.current?.click()}>
+                          <RefreshCw className="h-3.5 w-3.5" /> Cambiar
+                        </Button>
+                      </div>
+                    )}
                     <div className="flex gap-2">
-                      <Button variant="outline" className="flex-1" onClick={() => setFallando(null)}>Cancelar</Button>
-                      <Button variant="danger" className="flex-1" loading={busy} onClick={() => { if (!motivoFallo.trim()) return toast.error("Indica el motivo de la no entrega"); fallarFileRef.current?.click(); }}>
-                        <Camera className="h-4 w-4" /> Foto y confirmar
+                      <Button variant="outline" className="flex-1" onClick={() => { setFallando(null); setFotoFallo(null); }}>Cancelar</Button>
+                      <Button variant="danger" className="flex-1" disabled={!fotoFallo || !motivoFallo.trim()} loading={busy === `fallar-${p.destino_id}`} onClick={() => fallarDestino(p.destino_id!)}>
+                        {busy === `fallar-${p.destino_id}` ? "Subiendo foto…" : "Confirmar no entrega"}
                       </Button>
                     </div>
                   </div>
@@ -286,7 +339,7 @@ export default function AsignacionDetalle() {
               </Field>
               {incFile && <p className="text-xs text-emerald-400">Foto adjunta: {incFile.name}</p>}
               <p className="text-xs text-stone-400">La gravedad la evalúa la central, no el conductor.</p>
-              <Button className="w-full" variant="danger" loading={busy} onClick={reportarIncidencia}>Reportar</Button>
+              <Button className="w-full" variant="danger" loading={busy === "incidencia"} onClick={reportarIncidencia}>Reportar</Button>
             </div>
           )}
         </div>
@@ -296,6 +349,14 @@ export default function AsignacionDetalle() {
         <div className="rounded-2xl border border-emerald-700/40 bg-emerald-900/20 p-5 text-center">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
           <p className="mt-2 font-semibold text-stone-100">Run completado</p>
+        </div>
+      )}
+
+      {asg.estado === "Cancelada" && (
+        <div className="rounded-2xl border border-stone-600 bg-stone-800/60 p-5 text-center">
+          <XCircle className="mx-auto h-12 w-12 text-stone-400" />
+          <p className="mt-2 font-semibold text-stone-100">Run cancelado</p>
+          <p className="mt-1 text-sm text-stone-400">Esta asignación fue cancelada por la central; no requiere ninguna acción.</p>
         </div>
       )}
     </div>

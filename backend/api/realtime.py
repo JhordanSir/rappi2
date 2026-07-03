@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from api.dependencies import STAFF_ROLES
+from api.dependencies import es_staff_rol
 from core.database import get_db
 from core.realtime import event_stream
 from models.conductores import Conductor
@@ -48,13 +48,13 @@ async def _canales_de(token: str, db: AsyncSession) -> list[str]:
     rol = user.rol.nombre if user.rol is not None else None
     if user.cliente_id is not None:
         canales.append(f"cliente:{user.cliente_id}")
-    elif rol not in STAFF_ROLES:
+    elif not es_staff_rol(rol):
         conductor_id = (
             await db.execute(select(Conductor.id).where(Conductor.usuario_id == user.id))
         ).scalar_one_or_none()
         if conductor_id is not None:
             canales.append(f"conductor:{conductor_id}")
-    if rol in STAFF_ROLES:
+    if es_staff_rol(rol):
         canales.append("staff")
     return canales
 

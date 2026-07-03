@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -15,6 +15,7 @@ from api.dependencies import (
 )
 from core.database import get_db
 from core.estados import TRANSICIONES_ASIGNACION, validar_transicion
+from core.pagination import ordenar, paginate
 from core.realtime import CANAL_STAFF, canal_cliente, publish
 from sqlalchemy.orm import selectinload
 
@@ -149,10 +150,14 @@ async def _avisar_estado_orden(db: AsyncSession, orden: Orden | None) -> None:
 
 @router.get("/", response_model=list[AsignacionResponse])
 async def list_asignaciones(
+    response: Response,
     skip: int = 0,
     limit: int = Query(50, le=200),
     estado: str | None = None,
     conductor_id: int | None = None,
+    q: str | None = Query(None, description="Busca por #orden o placa"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "read")),
@@ -161,15 +166,29 @@ async def list_asignaciones(
     if not scope.ve_todo():
         # El conductor solo ve sus asignaciones; otros usuarios finales, ninguna.
         if scope.conductor_id is None:
+            response.headers["X-Total-Count"] = "0"
             return []
         stmt = stmt.where(Asignacion.conductor_id == scope.conductor_id)
     elif conductor_id is not None:
         stmt = stmt.where(Asignacion.conductor_id == conductor_id)
     if estado is not None:
         stmt = stmt.where(Asignacion.estado == estado)
-    stmt = stmt.order_by(Asignacion.id.desc()).offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    if q:
+        termino = q.strip().lstrip("#")
+        condiciones = [Asignacion.vehiculo_placa.ilike(f"%{termino}%")]
+        if termino.isdigit():
+            condiciones.append(Asignacion.orden_id == int(termino))
+            condiciones.append(Asignacion.id == int(termino))
+        stmt = stmt.where(or_(*condiciones))
+    stmt = ordenar(
+        stmt, orden_por, direccion,
+        {"id": Asignacion.id, "orden_id": Asignacion.orden_id, "estado": Asignacion.estado,
+         "conductor_id": Asignacion.conductor_id, "vehiculo_placa": Asignacion.vehiculo_placa,
+         "fecha_inicio": Asignacion.fecha_inicio},
+        por_defecto=Asignacion.id.desc(),
+    )
+    # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
+    return await paginate(db, stmt, response, skip, limit)
 
 
 async def _asg_full(db: AsyncSession, asignacion_id: int) -> Asignacion | None:

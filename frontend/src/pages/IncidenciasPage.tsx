@@ -8,7 +8,7 @@ import type { Incidencia, TipoEvidencia } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/Table";
+import { DataTable, toggleSort, type SortState } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
@@ -33,12 +33,14 @@ export default function IncidenciasPage() {
   const [toDelete, setToDelete] = useState<Incidencia | null>(null);
   // Búsqueda por tipo server-side (parámetro `tipo`, ilike) + filtros origen/severidad.
   const dq = useDebouncedValue(search.trim());
+  const [sort, setSort] = useState<SortState | null>(null);
   const { data, isLoading } = useIncidencias({
     limit: 200,
     ...(sevMin ? { severidad_min: Number(sevMin) } : {}),
     ...(origen ? { origen } : {}),
     ...(dq && !/^#?\d+$/.test(dq) ? { tipo: dq } : {}),
     ...(dq && /^#?\d+$/.test(dq) ? { asignacion_id: Number(dq.replace("#", "")) } : {}),
+    ...(sort ? { orden_por: sort.key, dir: sort.dir } : {}),
   });
   const writable = can("incidencias", "write");
   const del = useApiMutation((id: number) => api.delete(`/incidencias/${id}`), ["incidencias"]);
@@ -75,12 +77,14 @@ export default function IncidenciasPage() {
           loading={isLoading}
           rowKey={(i) => i.id}
           onRowClick={(i) => setDetail(i)}
+          sort={sort}
+          onSort={(k) => setSort((s) => toggleSort(s, k))}
           columns={[
-            { header: "ID", cell: (i) => <span className="font-mono text-xs text-slate-500">#{i.id}</span> },
-            { header: "Tipo", cell: (i) => <span className="inline-flex items-center gap-1.5 font-medium text-slate-800"><TriangleAlert className="h-4 w-4 text-amber-500" /> {i.tipo}</span> },
-            { header: "Asignación", cell: (i) => <span className="font-mono text-xs">#{i.asignacion_id}</span> },
-            { header: "Origen", cell: (i) => <Badge tone={i.origen === "automatica" ? "red" : i.origen === "admin" ? "indigo" : "gray"}>{i.origen === "automatica" ? "Automática" : i.origen === "admin" ? "Central" : "Chofer"}</Badge> },
-            { header: "Severidad", cell: (i) => (
+            { header: "ID", sortKey: "id", cell: (i) => <span className="font-mono text-xs text-slate-500">#{i.id}</span> },
+            { header: "Tipo", sortKey: "tipo", cell: (i) => <span className="inline-flex items-center gap-1.5 font-medium text-slate-800"><TriangleAlert className="h-4 w-4 text-amber-500" /> {i.tipo}</span> },
+            { header: "Asignación", sortKey: "asignacion_id", cell: (i) => <span className="font-mono text-xs">#{i.asignacion_id}</span> },
+            { header: "Origen", sortKey: "origen", cell: (i) => <Badge tone={i.origen === "automatica" ? "red" : i.origen === "admin" ? "indigo" : "gray"}>{i.origen === "automatica" ? "Automática" : i.origen === "admin" ? "Central" : "Chofer"}</Badge> },
+            { header: "Severidad", sortKey: "severidad", cell: (i) => (
               writable ? (
                 <Select
                   className="h-8 w-auto"
@@ -93,7 +97,7 @@ export default function IncidenciasPage() {
               ) : <Badge tone={sevTone(i.severidad) as any}>Nivel {i.severidad}</Badge>
             ) },
             { header: "Notas", cell: (i) => <span title={i.notas || undefined} className="line-clamp-2 max-w-[260px] text-slate-500">{i.notas || "—"}</span> },
-            { header: "Fecha", cell: (i) => <span className="whitespace-nowrap text-slate-500">{formatDate(i.fecha)}</span> },
+            { header: "Fecha", sortKey: "fecha", cell: (i) => <span className="whitespace-nowrap text-slate-500">{formatDate(i.fecha)}</span> },
             { header: "", align: "right", cell: (i) => (
               <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                 <Button size="sm" variant="outline" onClick={() => setEvid(i)}><Paperclip className="h-3.5 w-3.5" /> Evidencias</Button>

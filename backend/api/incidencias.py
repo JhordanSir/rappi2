@@ -5,6 +5,7 @@ from sqlalchemy.future import select
 
 from api.dependencies import UserScope, get_current_user, get_mongo_db, get_scope, require_permiso
 from core.database import get_db
+from core.pagination import ordenar
 from models.asignaciones import Asignacion
 from models.incidencias import Incidencia
 from models.usuarios import Usuario
@@ -25,6 +26,8 @@ async def list_incidencias(
     severidad_min: int | None = None,
     origen: str | None = Query(None, description="chofer | automatica | admin"),
     tipo: str | None = Query(None, description="Tipo de incidencia (parcial)"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("incidencias", "read")),
 ):
@@ -37,7 +40,12 @@ async def list_incidencias(
         stmt = stmt.where(Incidencia.origen == origen)
     if tipo:
         stmt = stmt.where(Incidencia.tipo.ilike(f"%{tipo.strip()}%"))
-    stmt = stmt.order_by(Incidencia.fecha.desc()).offset(skip).limit(limit)
+    stmt = ordenar(
+        stmt, orden_por, direccion,
+        {"id": Incidencia.id, "tipo": Incidencia.tipo, "severidad": Incidencia.severidad,
+         "origen": Incidencia.origen, "fecha": Incidencia.fecha, "asignacion_id": Incidencia.asignacion_id},
+        por_defecto=Incidencia.fecha.desc(),
+    ).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()
 

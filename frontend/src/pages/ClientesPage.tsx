@@ -8,7 +8,7 @@ import type { Cliente, ClienteDireccion } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/Table";
+import { DataTable, toggleSort, type SortState } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
@@ -34,7 +34,8 @@ export default function ClientesPage() {
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const dq = useDebouncedValue(search.trim());
-  useEffect(() => setPage(0), [dq, soloActivos, desde, hasta]);
+  const [sort, setSort] = useState<SortState | null>(null);
+  useEffect(() => setPage(0), [dq, soloActivos, desde, hasta, sort]);
   // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
   const { data, isLoading } = usePaginated<Cliente>("clientes", "/clientes/", {
     skip: page * PAGE_SIZE,
@@ -44,6 +45,7 @@ export default function ClientesPage() {
     ...(desde ? { desde } : {}),
     // Fin de día inclusivo: "hasta" cubre todo ese día.
     ...(hasta ? { hasta: `${hasta}T23:59:59` } : {}),
+    ...(sort ? { orden_por: sort.key, dir: sort.dir } : {}),
   });
 
   // Desactivar un cliente desactiva en cascada su usuario; refrescamos ambas listas (P6).
@@ -77,9 +79,12 @@ export default function ClientesPage() {
           loading={isLoading}
           rowKey={(c) => c.id}
           footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
+          sort={sort}
+          onSort={(k) => setSort((s) => toggleSort(s, k))}
           columns={[
             {
               header: "Cliente",
+              sortKey: "nombre",
               cell: (c) => (
                 <div>
                   <p className="font-medium text-slate-800">{c.nombre}</p>

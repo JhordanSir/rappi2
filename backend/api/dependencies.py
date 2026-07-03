@@ -31,8 +31,15 @@ oauth2_scheme = OAuth2AuthorizationCodeBearer(
     auto_error=True,
 )
 
-# Roles internos con visibilidad total (no se les aplica filtro de fila).
-STAFF_ROLES = {"Admin"}
+# Roles de usuario FINAL (con filtro de fila: solo ven lo suyo). Cualquier otro rol
+# —Admin o personalizados como Despachador/Auditor— es staff: visibilidad total de
+# filas, y la matriz de permisos finos (require_permiso) acota qué puede HACER.
+ROLES_USUARIO_FINAL = {"Cliente", "Conductor"}
+
+
+def es_staff_rol(rol_nombre: Optional[str]) -> bool:
+    """True si el rol es interno/staff (todo lo que no sea Cliente o Conductor)."""
+    return rol_nombre is not None and rol_nombre not in ROLES_USUARIO_FINAL
 
 # El ROL del usuario lo asigna Keycloak (viene en el token y lo refleja usuario.rol_id),
 # pero el conjunto de permisos finos de cada rol vive en la BD local (tabla `permisos`) y
@@ -137,7 +144,7 @@ async def get_scope(
     db: AsyncSession = Depends(get_db),
 ) -> UserScope:
     rol_nombre = user.rol.nombre if user.rol is not None else None
-    is_staff = rol_nombre in STAFF_ROLES
+    is_staff = es_staff_rol(rol_nombre)
     cliente_id = user.cliente_id
     conductor_id: Optional[int] = None
     # Solo resolvemos el conductor cuando no es staff ni cliente (una query indexada).

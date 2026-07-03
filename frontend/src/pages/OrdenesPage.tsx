@@ -10,7 +10,7 @@ import type { Cotizacion, EstadoOrden, NivelServicio, Orden } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/Table";
+import { DataTable, toggleSort, type SortState } from "@/components/ui/Table";
 import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
@@ -45,9 +45,10 @@ export default function OrdenesPage() {
   const scope = user?.cliente_id ?? null;
   const dq = useDebouncedValue(search.trim());
   const dDistrito = useDebouncedValue(distrito.trim());
+  const [sort, setSort] = useState<SortState | null>(null);
 
   // Al cambiar filtros o búsqueda volvemos a la primera página.
-  useEffect(() => setPage(0), [estado, dq, scope, desde, hasta, nivel, dDistrito]);
+  useEffect(() => setPage(0), [estado, dq, scope, desde, hasta, nivel, dDistrito, sort]);
 
   const { data, isLoading } = usePaginated<Orden>("ordenes", "/ordenes/", {
     skip: page * PAGE_SIZE,
@@ -60,6 +61,7 @@ export default function OrdenesPage() {
     ...(hasta ? { hasta: `${hasta}T23:59:59` } : {}),
     ...(nivel ? { nivel_servicio: nivel } : {}),
     ...(dDistrito ? { distrito: dDistrito } : {}),
+    ...(sort ? { orden_por: sort.key, dir: sort.dir } : {}),
   });
   const { data: clientes } = useClientes({ limit: 200 }, can("clientes", "read"));
 
@@ -98,9 +100,11 @@ export default function OrdenesPage() {
           rowKey={(o) => o.id}
           onRowClick={(o) => navigate(`/ordenes/${o.id}`)}
           footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
+          sort={sort}
+          onSort={(k) => setSort((s) => toggleSort(s, k))}
           columns={[
-            { header: "ID", cell: (o) => <span className="font-mono text-xs font-semibold text-slate-500">#{o.id}</span> },
-            { header: "Cliente", cell: (o) => <span className="font-medium text-slate-800">{clienteName(o.cliente_id)}</span> },
+            { header: "ID", sortKey: "id", cell: (o) => <span className="font-mono text-xs font-semibold text-slate-500">#{o.id}</span> },
+            { header: "Cliente", sortKey: "cliente_id", cell: (o) => <span className="font-medium text-slate-800">{clienteName(o.cliente_id)}</span> },
             {
               header: "Ruta",
               cell: (o) => (
@@ -112,9 +116,9 @@ export default function OrdenesPage() {
                 </div>
               ),
             },
-            { header: "Estado", cell: (o) => <StatusBadge kind="orden" value={o.estado} /> },
-            { header: "Total", align: "right", cell: (o) => formatMoney(o.total) },
-            { header: "Creada", cell: (o) => <span className="text-slate-500">{formatDate(o.fecha_creacion, false)}</span> },
+            { header: "Estado", sortKey: "estado", cell: (o) => <StatusBadge kind="orden" value={o.estado} /> },
+            { header: "Total", sortKey: "total", align: "right", cell: (o) => formatMoney(o.total) },
+            { header: "Creada", sortKey: "fecha_creacion", cell: (o) => <span className="text-slate-500">{formatDate(o.fecha_creacion, false)}</span> },
             { header: "", align: "right", cell: (o) => (
               can("ordenes", "delete") && o.estado !== "Entregado" && o.estado !== "Cancelado" ? (
                 <Button

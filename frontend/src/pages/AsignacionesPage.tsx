@@ -1,21 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Play, CheckCircle2, Trash2, ExternalLink, Camera, RotateCcw, Route } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useAsignaciones, useOrdenes, useConductores, useVehiculos, useApiMutation, usePruebasEntrega } from "@/api/hooks";
+import { useOrdenes, useConductores, useVehiculos, useApiMutation, useDebouncedValue, usePaginated, usePruebasEntrega } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
-import type { Asignacion } from "@/types";
+import type { Asignacion, EstadoAsignacion } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/Table";
+import { DataTable, toggleSort, type SortState } from "@/components/ui/Table";
+import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { Toolbar, SearchInput } from "@/components/ui/Toolbar";
 import { formatDate } from "@/lib/utils";
+
+const ESTADOS: EstadoAsignacion[] = ["Asignada", "EnCurso", "Finalizada", "Cancelada"];
+const PAGE_SIZE = 20;
 
 export default function AsignacionesPage() {
   const navigate = useNavigate();
@@ -25,8 +29,22 @@ export default function AsignacionesPage() {
   const [toDelete, setToDelete] = useState<Asignacion | null>(null);
   const [viewing, setViewing] = useState<Asignacion | null>(null);
   const [search, setSearch] = useState("");
+  const [estado, setEstado] = useState("");
+  const [conductorId, setConductorId] = useState("");
+  const [sort, setSort] = useState<SortState | null>(null);
+  const [page, setPage] = useState(0);
+  const dq = useDebouncedValue(search.trim());
+  useEffect(() => setPage(0), [dq, estado, conductorId, sort]);
 
-  const { data, isLoading } = useAsignaciones({ limit: 200 });
+  // Paginación, filtros y búsqueda server-side (antes: 200 filas filtradas en memoria).
+  const { data, isLoading } = usePaginated<Asignacion>("asignaciones", "/asignaciones/", {
+    skip: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    ...(dq ? { q: dq } : {}),
+    ...(estado ? { estado } : {}),
+    ...(conductorId ? { conductor_id: Number(conductorId) } : {}),
+    ...(sort ? { orden_por: sort.key, dir: sort.dir } : {}),
+  });
   const { data: conductores } = useConductores({ limit: 200 });
   const writable = can("asignaciones", "write");
 
@@ -37,10 +55,8 @@ export default function AsignacionesPage() {
   // Reconstruye la ruta consolidada del run (p. ej. si falló al asignar por OSRM caído).
   const regenRuta = useApiMutation((id: number) => api.post(`/asignaciones/${id}/regenerar-ruta`), ["asignaciones", "rutas", "seguimiento"]);
 
-  const rows = useMemo(
-    () => (data ?? []).filter((a) => !search || String(a.orden_id).includes(search) || a.vehiculo_placa.toLowerCase().includes(search.toLowerCase())),
-    [data, search],
-  );
+  const rows = data?.items;
+  const total = data?.total ?? 0;
 
   return (
     <div>
@@ -50,7 +66,15 @@ export default function AsignacionesPage() {
         actions={writable && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nueva asignación</Button>}
       />
       <Toolbar>
-        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por orden o placa…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por #orden o placa…" />
+        <Select value={estado} onChange={(e) => setEstado(e.target.value)} className="h-10 w-auto" title="Estado del run">
+          <option value="">Todos los estados</option>
+          {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </Select>
+        <Select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className="h-10 w-auto" title="Filtrar por conductor">
+          <option value="">Todos los conductores</option>
+          {(conductores ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </Select>
       </Toolbar>
 
       <Card>
@@ -58,10 +82,14 @@ export default function AsignacionesPage() {
           rows={rows}
           loading={isLoading}
           rowKey={(a) => a.id}
+          footer={<Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />}
+          sort={sort}
+          onSort={(k) => setSort((s) => toggleSort(s, k))}
           columns={[
-            { header: "ID", cell: (a) => <span className="font-mono text-xs text-slate-500">#{a.id}</span> },
+            { header: "ID", sortKey: "id", cell: (a) => <span className="font-mono text-xs text-slate-500">#{a.id}</span> },
             {
               header: "Órdenes",
+              sortKey: "orden_id",
               cell: (a) => (
                 <span className="inline-flex items-center gap-1.5">
                   <button onClick={() => navigate(`/ordenes/${a.orden_id}`)} className="inline-flex items-center gap-1 font-medium text-brand-600 hover:underline">
@@ -71,10 +99,10 @@ export default function AsignacionesPage() {
                 </span>
               ),
             },
-            { header: "Conductor", cell: (a) => condName(a.conductor_id) },
-            { header: "Vehículo", cell: (a) => <span className="font-mono text-xs">{a.vehiculo_placa}</span> },
-            { header: "Estado", cell: (a) => <StatusBadge kind="asignacion" value={a.estado} /> },
-            { header: "Inicio", cell: (a) => <span className="text-slate-500">{a.fecha_inicio ? formatDate(a.fecha_inicio) : "—"}</span> },
+            { header: "Conductor", sortKey: "conductor_id", cell: (a) => condName(a.conductor_id) },
+            { header: "Vehículo", sortKey: "vehiculo_placa", cell: (a) => <span className="font-mono text-xs">{a.vehiculo_placa}</span> },
+            { header: "Estado", sortKey: "estado", cell: (a) => <StatusBadge kind="asignacion" value={a.estado} /> },
+            { header: "Inicio", sortKey: "fecha_inicio", cell: (a) => <span className="text-slate-500">{a.fecha_inicio ? formatDate(a.fecha_inicio) : "—"}</span> },
             {
               header: "",
               align: "right",

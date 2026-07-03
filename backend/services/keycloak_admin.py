@@ -17,7 +17,9 @@ import httpx
 from fastapi import HTTPException, status
 
 from core.config import settings
-from services.keycloak import APP_ROLES
+
+# Roles internos de Keycloak que nunca se tocan al reasignar el rol de la app.
+_ROLES_KEYCLOAK = ("offline_access", "uma_authorization")
 
 _TIMEOUT = 10.0
 _token_cache: Dict[str, Any] = {"token": None, "expira": 0.0}
@@ -117,16 +119,65 @@ async def actualizar(sub: str, email: str | None = None, enabled: bool | None = 
         raise _no_disponible(f"no se pudo actualizar el usuario ({resp.status_code})")
 
 
-async def asignar_rol(sub: str, rol: str) -> None:
-    """Deja al usuario exactamente con el realm-role `rol` de la app (quita los otros)."""
-    resp = await _req("GET", f"/roles/{rol}")
+def _es_rol_de_app(nombre: str | None) -> bool:
+    """Roles gestionados por la app (base o personalizados) vs. los internos de
+    Keycloak (offline_access, uma_authorization, default-roles-*)."""
+    if not nombre:
+        return False
+    return nombre not in _ROLES_KEYCLOAK and not nombre.startswith("default-roles")
+
+
+async def asegurar_rol_realm(nombre: str, descripcion: str | None = None) -> dict:
+    """Garantiza que el realm-role exista en Keycloak (lo crea si falta) y devuelve su
+    representación. Así los roles PERSONALIZADOS creados en la app son asignables."""
+    resp = await _req("GET", f"/roles/{nombre}")
+    if resp.status_code == 404:
+        crear = await _req(
+            "POST", "/roles",
+            json={"name": nombre, "description": descripcion or f"Rol {nombre} (creado desde Rappi2)"},
+        )
+        if crear.status_code >= 400 and crear.status_code != 409:
+            raise _no_disponible(f"no se pudo crear el rol '{nombre}' en el realm ({crear.status_code})")
+        resp = await _req("GET", f"/roles/{nombre}")
     if resp.status_code >= 400:
-        raise _no_disponible(f"el rol '{rol}' no existe en el realm")
-    rep = resp.json()
+        raise _no_disponible(f"no se pudo obtener el rol '{nombre}' del realm ({resp.status_code})")
+    return resp.json()
+
+
+async def renombrar_rol_realm(viejo: str, nuevo: str) -> None:
+    """Renombra un realm-role migrando a sus miembros: crea el nuevo, se lo asigna a
+    todos los usuarios que tenían el viejo, les quita el viejo y lo borra. Sin esto,
+    renombrar un rol en uso degradaría a sus usuarios en el próximo login (el token
+    traería un nombre que ya no existe en el catálogo)."""
+    rep_nuevo = await asegurar_rol_realm(nuevo)
+    check = await _req("GET", f"/roles/{viejo}")
+    if check.status_code >= 400:  # el viejo no existe en el realm: nada que migrar
+        return
+    rep_viejo = check.json()
+    miembros = await _req("GET", f"/roles/{viejo}/users", params={"max": 1000})
+    for m in (miembros.json() if miembros.status_code < 400 else []):
+        await _req("POST", f"/users/{m['id']}/role-mappings/realm", json=[rep_nuevo])
+        await _req("DELETE", f"/users/{m['id']}/role-mappings/realm", json=[rep_viejo])
+    await eliminar_rol_realm(viejo)
+
+
+async def eliminar_rol_realm(nombre: str) -> None:
+    """Borra el realm-role (best-effort: al eliminar un rol de la app no debe fallar
+    por el estado de Keycloak)."""
+    try:
+        await _req("DELETE", f"/roles/{nombre}")
+    except HTTPException:
+        pass
+
+
+async def asignar_rol(sub: str, rol: str) -> None:
+    """Deja al usuario exactamente con el realm-role `rol` de la app (quita los demás
+    roles de la app; los internos de Keycloak no se tocan). Crea el rol si falta."""
+    rep = await asegurar_rol_realm(rol)
 
     actuales = await _req("GET", f"/users/{sub}/role-mappings/realm")
     actuales.raise_for_status()
-    quitar = [r for r in actuales.json() if r.get("name") in APP_ROLES and r.get("name") != rol]
+    quitar = [r for r in actuales.json() if _es_rol_de_app(r.get("name")) and r.get("name") != rol]
     if quitar:
         await _req("DELETE", f"/users/{sub}/role-mappings/realm", json=quitar)
     resp = await _req("POST", f"/users/{sub}/role-mappings/realm", json=[rep])
@@ -164,8 +215,14 @@ async def crear_usuario(username: str, email: str, password: str, rol: str) -> s
         sub = (creado or {}).get("id", "")
     if not sub:
         raise _no_disponible("Keycloak no devolvió el id del usuario creado")
-    await reset_password(sub, password)
-    await asignar_rol(sub, rol)
+    # Si la contraseña o el rol fallan, deshacer el usuario recién creado: sin esto
+    # quedaba una cuenta huérfana en Keycloak (sin rol ni espejo local).
+    try:
+        await reset_password(sub, password)
+        await asignar_rol(sub, rol)
+    except HTTPException:
+        await eliminar(sub)
+        raise
     return sub
 
 

@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 
 from api.dependencies import require_permiso
 from core.database import get_db
-from core.pagination import paginate
+from core.pagination import ordenar, paginate
 from models.vehiculos import Vehiculo
 from schemas.vehiculos import VehiculoCreate, VehiculoResponse, VehiculoUpdate
 
@@ -23,6 +23,8 @@ async def list_vehiculos(
     tipo: str | None = Query(None, description="Tipo de vehículo (parcial: 'moto', 'camioneta'…)"),
     capacidad_min: float | None = Query(None, ge=0, description="Capacidad mínima en kg"),
     q: str | None = Query(None, description="Busca por placa o tipo"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("vehiculos", "read")),
 ):
@@ -38,7 +40,12 @@ async def list_vehiculos(
     if q:
         patron = f"%{q.strip()}%"
         stmt = stmt.where(or_(Vehiculo.placa.ilike(patron), Vehiculo.tipo.ilike(patron)))
-    stmt = stmt.order_by(Vehiculo.placa)
+    stmt = ordenar(
+        stmt, orden_por, direccion,
+        {"placa": Vehiculo.placa, "tipo": Vehiculo.tipo, "capacidad_kg": Vehiculo.capacidad_kg,
+         "estado": Vehiculo.estado, "activo": Vehiculo.activo},
+        por_defecto=Vehiculo.placa,
+    )
     # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
     return await paginate(db, stmt, response, skip, limit)
 

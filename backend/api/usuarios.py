@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import invalidar_cache_permisos, require_permiso
 from core.database import get_db
-from core.pagination import paginate
+from core.pagination import ordenar, paginate
 from core.security import hash_password
 from models.clientes import Cliente
 from models.conductores import Conductor
@@ -27,16 +27,26 @@ async def list_usuarios(
     limit: int = Query(50, le=200),
     activo: bool | None = None,
     q: str | None = Query(None, description="Busca por username o email"),
+    rol: str | None = Query(None, description="Filtra por nombre de rol (Admin, Cliente…)"),
+    orden_por: str | None = Query(None, description="Campo de ordenamiento (cabecera)"),
+    direccion: str | None = Query(None, alias="dir", description="asc | desc"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("usuarios", "read")),
 ):
     stmt = select(Usuario).options(selectinload(Usuario.rol).selectinload(Rol.permisos))
     if activo is not None:
         stmt = stmt.where(Usuario.activo == activo)
+    if rol:
+        stmt = stmt.where(Usuario.rol_id.in_(select(Rol.id).where(Rol.nombre == rol)))
     if q:
         patron = f"%{q.strip()}%"
         stmt = stmt.where(or_(Usuario.username.ilike(patron), Usuario.email.ilike(patron)))
-    stmt = stmt.order_by(Usuario.id)
+    stmt = ordenar(
+        stmt, orden_por, direccion,
+        {"id": Usuario.id, "username": Usuario.username, "email": Usuario.email,
+         "fecha_registro": Usuario.fecha_registro, "activo": Usuario.activo},
+        por_defecto=Usuario.id,
+    )
     # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
     return await paginate(db, stmt, response, skip, limit)
 

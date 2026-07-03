@@ -49,7 +49,11 @@ class DestinoOut(PaqueteFields):
 
 
 class OrdenCreate(PaqueteFields):
-    cliente_id: int
+    # Opcional: el rol Cliente NO lo envía (el endpoint lo fuerza desde su token);
+    # el staff sí debe indicarlo (si falta/es inválido → 400 en create_orden).
+    # Con `int` obligatorio, Pydantic respondía 422 a todo cliente antes de llegar
+    # al override — el "Nuevo envío" del cliente estaba roto.
+    cliente_id: Optional[int] = None
     direccion_origen: str
     distrito_origen: Optional[str] = None
     lat_origen: Optional[float] = lat_field()
