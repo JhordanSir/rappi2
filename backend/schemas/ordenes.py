@@ -26,6 +26,11 @@ class DestinoIn(PaqueteFields):
     nombre_destinatario: Optional[str] = None
 
 
+class DestinoUpdate(DestinoIn):
+    """Edición parcial de un destino existente (dirección y/o datos del paquete).
+    Todos los campos son opcionales: solo se aplica lo enviado."""
+
+
 class DestinoOut(PaqueteFields):
     id: int
     secuencia: int

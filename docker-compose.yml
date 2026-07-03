@@ -151,6 +151,9 @@ services:
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-rappi2}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-rappi2-frontend}
       - KEYCLOAK_AUDIENCE=${KEYCLOAK_AUDIENCE:-rappi2-backend}
+      # Admin API: crear/gestionar usuarios EN Keycloak desde la pantalla Usuarios.
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN:-admin}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin}
       - AUDIT_ENABLED=${AUDIT_ENABLED:-true}
       - CORS_ORIGINS=${CORS_ORIGINS:-["*"]}
       # Días tras los que una orden 'Pendiente de Pago' se resalta como antigua al staff.

@@ -116,6 +116,54 @@ async def estadisticas_asignacion(
     return await tracking_service.estadisticas_asignacion(mongo_db, asignacion_id)
 
 
+@router.get("/tracking/flota")
+async def flota_activa(
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    _: object = Depends(require_permiso("tracking", "read")),
+):
+    """Mapa operativo de la flota en UNA llamada: cada run EnCurso con su conductor,
+    vehículo, última posición GPS conocida (sin ventana temporal: no 'desaparece')
+    y la geometría de la ruta vigente para dibujarla."""
+    asignaciones = (
+        await db.execute(
+            select(Asignacion).where(Asignacion.estado == "EnCurso").order_by(Asignacion.id.desc())
+        )
+    ).scalars().all()
+    flota = []
+    for a in asignaciones:
+        conductor = await db.get(Conductor, a.conductor_id)
+        ultimo = await tracking_service.ultimo_ping(mongo_db, a.id)
+        posicion = None
+        if ultimo is not None:
+            coords = ultimo["location"]["coordinates"]
+            posicion = {
+                "lon": coords[0],
+                "lat": coords[1],
+                "speed_kmh": ultimo.get("speed_kmh"),
+                "timestamp": ultimo["timestamp"],
+            }
+        ruta = (
+            await db.execute(
+                select(RutaPlanificada)
+                .where(RutaPlanificada.orden_id == a.orden_id)
+                .order_by(RutaPlanificada.id.desc())
+            )
+        ).scalars().first()
+        flota.append({
+            "asignacion_id": a.id,
+            "orden_id": a.orden_id,
+            "orden_ids": [o.id for o in a.ordenes],
+            "conductor_id": a.conductor_id,
+            "conductor_nombre": conductor.nombre if conductor else None,
+            "vehiculo_placa": a.vehiculo_placa,
+            "fecha_inicio": a.fecha_inicio,
+            "posicion": posicion,
+            "ruta_geometria": ruta.geometria if ruta is not None else None,
+        })
+    return flota
+
+
 @router.get("/tracking/conductores-cerca")
 async def conductores_cerca_de_punto(
     lon: float = Query(..., ge=-180, le=180),

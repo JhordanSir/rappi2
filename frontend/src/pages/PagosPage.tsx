@@ -23,14 +23,21 @@ const PAGE_SIZE = 20;
 export default function PagosPage() {
   const { can } = useAuth();
   const [estado, setEstado] = useState("");
+  const [proveedor, setProveedor] = useState("");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
   const [viewing, setViewing] = useState<Pago | null>(null);
-  useEffect(() => setPage(0), [estado]);
+  useEffect(() => setPage(0), [estado, proveedor, desde, hasta]);
   const { data, isLoading } = usePaginated<Pago>("pagos", "/pagos", {
     skip: page * PAGE_SIZE,
     limit: PAGE_SIZE,
     ...(estado ? { estado } : {}),
+    ...(proveedor ? { proveedor } : {}),
+    ...(desde ? { desde } : {}),
+    // Fin de día inclusivo: "hasta" cubre todo ese día.
+    ...(hasta ? { hasta: `${hasta}T23:59:59` } : {}),
   });
   const rows = data?.items;
   const total = data?.total ?? 0;
@@ -49,6 +56,13 @@ export default function PagosPage() {
           <option value="">Todos los estados</option>
           {ESTADOS.map((e) => <option key={e} value={e}>{e}</option>)}
         </Select>
+        <Select value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-10 w-auto" title="Pasarela de pago">
+          <option value="">Toda pasarela</option>
+          <option value="mercadopago">MercadoPago</option>
+          <option value="manual">Manual (staff)</option>
+        </Select>
+        <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 w-auto" title="Pagos desde" />
+        <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="h-10 w-auto" title="Pagos hasta" />
       </Toolbar>
       <Card>
         <DataTable

@@ -20,6 +20,8 @@ async def list_vehiculos(
     limit: int = Query(50, le=200),
     activo: bool | None = True,
     estado: str | None = None,
+    tipo: str | None = Query(None, description="Tipo de vehículo (parcial: 'moto', 'camioneta'…)"),
+    capacidad_min: float | None = Query(None, ge=0, description="Capacidad mínima en kg"),
     q: str | None = Query(None, description="Busca por placa o tipo"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("vehiculos", "read")),
@@ -29,6 +31,10 @@ async def list_vehiculos(
         stmt = stmt.where(Vehiculo.activo == activo)
     if estado is not None:
         stmt = stmt.where(Vehiculo.estado == estado)
+    if tipo:
+        stmt = stmt.where(Vehiculo.tipo.ilike(f"%{tipo.strip()}%"))
+    if capacidad_min is not None:
+        stmt = stmt.where(Vehiculo.capacidad_kg >= capacidad_min)
     if q:
         patron = f"%{q.strip()}%"
         stmt = stmt.where(or_(Vehiculo.placa.ilike(patron), Vehiculo.tipo.ilike(patron)))

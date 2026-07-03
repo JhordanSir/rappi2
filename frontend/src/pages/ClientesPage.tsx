@@ -12,7 +12,7 @@ import { DataTable } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { DetailModal } from "@/components/ui/DetailModal";
-import { Field, Input } from "@/components/ui/Field";
+import { Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmModal } from "@/components/ui/Confirm";
 import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
@@ -30,13 +30,20 @@ export default function ClientesPage() {
   const [viewing, setViewing] = useState<Cliente | null>(null);
   const [toDelete, setToDelete] = useState<Cliente | null>(null);
   const [page, setPage] = useState(0);
+  const [soloActivos, setSoloActivos] = useState(true);
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
   const dq = useDebouncedValue(search.trim());
-  useEffect(() => setPage(0), [dq]);
+  useEffect(() => setPage(0), [dq, soloActivos, desde, hasta]);
   // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
   const { data, isLoading } = usePaginated<Cliente>("clientes", "/clientes/", {
     skip: page * PAGE_SIZE,
     limit: PAGE_SIZE,
+    activo: soloActivos,
     ...(dq ? { q: dq } : {}),
+    ...(desde ? { desde } : {}),
+    // Fin de día inclusivo: "hasta" cubre todo ese día.
+    ...(hasta ? { hasta: `${hasta}T23:59:59` } : {}),
   });
 
   // Desactivar un cliente desactiva en cascada su usuario; refrescamos ambas listas (P6).
@@ -55,7 +62,13 @@ export default function ClientesPage() {
         actions={writable && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nuevo cliente</Button>}
       />
       <Toolbar>
-        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre o email…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Nombre, email, teléfono o documento…" />
+        <Select value={soloActivos ? "activos" : "inactivos"} onChange={(e) => setSoloActivos(e.target.value === "activos")} className="h-10 w-auto" title="Estado de cuenta">
+          <option value="activos">Activos</option>
+          <option value="inactivos">Inactivos</option>
+        </Select>
+        <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 w-auto" title="Registrados desde" />
+        <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="h-10 w-auto" title="Registrados hasta" />
       </Toolbar>
 
       <Card>

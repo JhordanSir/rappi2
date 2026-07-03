@@ -14,6 +14,7 @@ import { DataTable } from "@/components/ui/Table";
 import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmModal } from "@/components/ui/Confirm";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { SearchInput, Toolbar } from "@/components/ui/Toolbar";
 import { LocationPicker } from "@/components/map/MapView";
@@ -32,12 +33,21 @@ export default function OrdenesPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [toCancel, setToCancel] = useState<Orden | null>(null);
+  // Cancelar = DELETE (soft): valida transición y libera conductor/asignación en el backend.
+  const cancelar = useApiMutation((id: number) => api.delete(`/ordenes/${id}`), ["ordenes", "asignaciones", "conductores"]);
+  // Filtros de segmentación (spec de auditoría): fechas, nivel de servicio y distrito.
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [nivel, setNivel] = useState("");
+  const [distrito, setDistrito] = useState("");
   // Aislamiento por rol Cliente: si el usuario está vinculado a un cliente, solo ve sus órdenes.
   const scope = user?.cliente_id ?? null;
   const dq = useDebouncedValue(search.trim());
+  const dDistrito = useDebouncedValue(distrito.trim());
 
   // Al cambiar filtros o búsqueda volvemos a la primera página.
-  useEffect(() => setPage(0), [estado, dq, scope]);
+  useEffect(() => setPage(0), [estado, dq, scope, desde, hasta, nivel, dDistrito]);
 
   const { data, isLoading } = usePaginated<Orden>("ordenes", "/ordenes/", {
     skip: page * PAGE_SIZE,
@@ -45,6 +55,11 @@ export default function OrdenesPage() {
     ...(estado ? { estado } : {}),
     ...(scope ? { cliente_id: scope } : {}),
     ...(dq ? { q: dq } : {}),
+    ...(desde ? { desde } : {}),
+    // Fin de día inclusivo: "hasta" del date-picker cubre todo ese día.
+    ...(hasta ? { hasta: `${hasta}T23:59:59` } : {}),
+    ...(nivel ? { nivel_servicio: nivel } : {}),
+    ...(dDistrito ? { distrito: dDistrito } : {}),
   });
   const { data: clientes } = useClientes({ limit: 200 }, can("clientes", "read"));
 
@@ -60,11 +75,20 @@ export default function OrdenesPage() {
         actions={can("ordenes", "write") && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nueva orden</Button>}
       />
       <Toolbar>
-        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por ID o dirección…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="ID, dirección o cliente…" />
         <Select value={estado} onChange={(e) => setEstado(e.target.value)} className="h-10 w-auto">
           <option value="">Todos los estados</option>
           {ESTADOS.map((e) => <option key={e} value={e}>{e}</option>)}
         </Select>
+        <Select value={nivel} onChange={(e) => setNivel(e.target.value)} className="h-10 w-auto" title="Nivel de servicio">
+          <option value="">Todo nivel</option>
+          <option value="estandar">Estándar</option>
+          <option value="express">Express</option>
+          <option value="urgente">Urgente</option>
+        </Select>
+        {!scope && <Input value={distrito} onChange={(e) => setDistrito(e.target.value)} placeholder="Distrito…" className="h-10 w-36" title="Distrito de origen o destino" />}
+        <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 w-auto" title="Creadas desde" />
+        <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="h-10 w-auto" title="Creadas hasta" />
       </Toolbar>
 
       <Card>
@@ -91,9 +115,39 @@ export default function OrdenesPage() {
             { header: "Estado", cell: (o) => <StatusBadge kind="orden" value={o.estado} /> },
             { header: "Total", align: "right", cell: (o) => formatMoney(o.total) },
             { header: "Creada", cell: (o) => <span className="text-slate-500">{formatDate(o.fecha_creacion, false)}</span> },
+            { header: "", align: "right", cell: (o) => (
+              can("ordenes", "delete") && o.estado !== "Entregado" && o.estado !== "Cancelado" ? (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-rose-500"
+                  title="Cancelar orden"
+                  onClick={(e) => { e.stopPropagation(); setToCancel(o); }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : null
+            )},
           ]}
         />
       </Card>
+
+      <ConfirmModal
+        open={!!toCancel}
+        title="Cancelar orden"
+        description={`¿Cancelar la orden #${toCancel?.id}? Se libera al conductor y la asignación asociada.`}
+        danger
+        confirmLabel="Cancelar orden"
+        loading={cancelar.isPending}
+        onClose={() => setToCancel(null)}
+        onConfirm={() =>
+          toCancel &&
+          cancelar.mutate(toCancel.id, {
+            onSuccess: () => { toast.success("Orden cancelada"); setToCancel(null); },
+            onError: (e) => toast.error(apiError(e)),
+          })
+        }
+      />
 
       {creating && <OrdenForm onClose={() => setCreating(false)} clientes={clientes ?? []} lockedClienteId={scope} />}
     </div>

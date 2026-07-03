@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = "rappi2-frontend"
     # Audiencia esperada en el token (la añade el mapper del cliente en Keycloak).
     KEYCLOAK_AUDIENCE: str = "rappi2-backend"
+    # Credenciales del admin del realm master: las usa la Admin API para crear/gestionar
+    # usuarios EN Keycloak desde la app (pantalla Usuarios). Vacías = gestión deshabilitada.
+    KEYCLOAK_ADMIN: str = ""
+    KEYCLOAK_ADMIN_PASSWORD: str = ""
 
     AUDIT_ENABLED: bool = True
 

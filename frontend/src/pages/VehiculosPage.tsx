@@ -29,13 +29,21 @@ export default function VehiculosPage() {
   const [viewing, setViewing] = useState<Vehiculo | null>(null);
   const [toDelete, setToDelete] = useState<Vehiculo | null>(null);
   const [page, setPage] = useState(0);
+  const [estado, setEstado] = useState("");
+  const [tipo, setTipo] = useState("");
+  const [capMin, setCapMin] = useState("");
   const dq = useDebouncedValue(search.trim());
-  useEffect(() => setPage(0), [dq]);
+  const dTipo = useDebouncedValue(tipo.trim());
+  const dCapMin = useDebouncedValue(capMin.trim());
+  useEffect(() => setPage(0), [dq, estado, dTipo, dCapMin]);
   // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
   const { data, isLoading } = usePaginated<Vehiculo>("vehiculos", "/vehiculos/", {
     skip: page * PAGE_SIZE,
     limit: PAGE_SIZE,
     ...(dq ? { q: dq } : {}),
+    ...(estado ? { estado } : {}),
+    ...(dTipo ? { tipo: dTipo } : {}),
+    ...(dCapMin && !isNaN(Number(dCapMin)) ? { capacidad_min: Number(dCapMin) } : {}),
   });
   const writable = can("vehiculos", "write");
   const del = useApiMutation((placa: string) => api.delete(`/vehiculos/${placa}`), ["vehiculos"]);
@@ -50,7 +58,15 @@ export default function VehiculosPage() {
         subtitle="Flota disponible para asignaciones"
         actions={writable && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nuevo vehículo</Button>}
       />
-      <Toolbar><SearchInput value={search} onChange={setSearch} placeholder="Buscar por placa o tipo…" /></Toolbar>
+      <Toolbar>
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por placa o tipo…" />
+        <Select value={estado} onChange={(e) => setEstado(e.target.value)} className="h-10 w-auto" title="Estado de flota">
+          <option value="">Todo estado</option>
+          {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </Select>
+        <Input value={tipo} onChange={(e) => setTipo(e.target.value)} placeholder="Tipo (moto, camioneta…)" className="h-10 w-44" title="Tipo de vehículo" />
+        <Input type="number" min="0" value={capMin} onChange={(e) => setCapMin(e.target.value)} placeholder="Cap. mín. (kg)" className="h-10 w-32" title="Capacidad mínima de carga" />
+      </Toolbar>
       <Card>
         <DataTable
           rows={rows}

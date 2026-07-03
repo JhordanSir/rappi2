@@ -14,6 +14,7 @@ from models.conductores import Conductor
 from models.roles import Rol
 from models.usuarios import Usuario
 from schemas.usuarios import UsuarioCreate, UsuarioResponse, UsuarioUpdate
+from services import keycloak_admin
 from services.provisioning import sincronizar_por_rol
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
@@ -64,12 +65,20 @@ async def create_usuario(
                 ),
             )
         raise HTTPException(status_code=400, detail="El correo ya está en uso")
+    # Keycloak es el proveedor de identidad ÚNICO: el usuario se crea PRIMERO allá
+    # (con contraseña y rol); si falla, no se crea nada local (sin cuentas huérfanas
+    # que no puedan iniciar sesión). El registro local es solo el espejo.
+    sub = await keycloak_admin.crear_usuario(
+        payload.username, payload.email, payload.password, rol.nombre
+    )
     usuario = Usuario(
         username=payload.username,
         email=payload.email,
-        password_hash=hash_password(payload.password),
+        password_hash=None,  # la credencial vive en Keycloak
         rol_id=payload.rol_id,
         cliente_id=payload.cliente_id,
+        auth_provider="keycloak",
+        keycloak_sub=sub,
     )
     db.add(usuario)
     try:
@@ -80,6 +89,8 @@ async def create_usuario(
         await db.refresh(usuario)
     except IntegrityError:
         await db.rollback()
+        # Deshacer la creación en Keycloak para no dejar la cuenta a medias.
+        await keycloak_admin.eliminar(sub)
         raise HTTPException(status_code=400, detail="Username, email o cliente_id ya en uso")
     result = await db.execute(
         select(Usuario).options(selectinload(Usuario.rol).selectinload(Rol.permisos)).where(Usuario.id == usuario.id)
@@ -113,8 +124,7 @@ async def update_usuario(
     if usuario is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     update = payload.model_dump(exclude_unset=True)
-    if "password" in update:
-        usuario.password_hash = hash_password(update.pop("password"))
+    password_nuevo = update.pop("password", None)
     rol_anterior = usuario.rol_id
     activo_anterior = usuario.activo
     for k, v in update.items():
@@ -130,6 +140,20 @@ async def update_usuario(
         if rol_nuevo is None:
             await db.rollback()
             raise HTTPException(status_code=400, detail="rol_id invalido")
+    # Propagar a Keycloak ANTES del commit local: si Keycloak falla (503), nada queda
+    # a medias. Usuarios legacy sin `keycloak_sub` (previos a la federación): solo se
+    # tocan localmente y su contraseña se sigue guardando como hash local.
+    if usuario.keycloak_sub:
+        if "email" in update:
+            await keycloak_admin.actualizar(usuario.keycloak_sub, email=update["email"])
+        if "activo" in update:
+            await keycloak_admin.actualizar(usuario.keycloak_sub, enabled=update["activo"])
+        if password_nuevo:
+            await keycloak_admin.reset_password(usuario.keycloak_sub, password_nuevo)
+        if rol_cambio:
+            await keycloak_admin.asignar_rol(usuario.keycloak_sub, rol_nuevo.nombre)
+    elif password_nuevo:
+        usuario.password_hash = hash_password(password_nuevo)
     try:
         await db.flush()
         # Al cambiar de rol, migrar/crear la ficha especializada (P3); al reactivar,
@@ -162,6 +186,10 @@ async def delete_usuario(
     usuario = await db.get(Usuario, usuario_id)
     if usuario is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    # También se deshabilita en Keycloak (antes del commit local): sin esto la cuenta
+    # seguiría pudiendo iniciar sesión aunque el espejo local esté inactivo.
+    if usuario.keycloak_sub:
+        await keycloak_admin.actualizar(usuario.keycloak_sub, enabled=False)
     usuario.activo = False
     # Cascada (P6): desactivar las fichas especializadas vinculadas.
     conductor = (

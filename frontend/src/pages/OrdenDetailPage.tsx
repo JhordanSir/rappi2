@@ -3,17 +3,19 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marker, Polygon, Polyline, Popup } from "react-leaflet";
 import {
-  ArrowLeft, Route as RouteIcon, Gauge, Clock, Flag, Truck, User, Navigation, RefreshCw, TriangleAlert, Camera, MapPin, Plus, Trash2,
+  ArrowLeft, Route as RouteIcon, Gauge, Clock, Flag, Truck, User, Navigation, RefreshCw, TriangleAlert, Camera, MapPin, Pencil, Plus, Trash2, XCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
 import { reverseGeocode } from "@/lib/geo";
 import { useOrden, useSeguimiento, usePings, useApiMutation } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
+import type { Destino } from "@/types";
 import { PageLoader } from "@/components/ui/Feedback";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
+import { ConfirmModal } from "@/components/ui/Confirm";
 import { Modal } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
 import { MapView, LocationPicker, type LatLng } from "@/components/map/MapView";
@@ -59,6 +61,10 @@ export default function OrdenDetailPage() {
   const qc = useQueryClient();
   const delDestino = useApiMutation((destinoId: number) => api.delete(`/ordenes/${ordenId}/destinos/${destinoId}`), []);
   const [addDest, setAddDest] = useState(false);
+  const [editDest, setEditDest] = useState<Destino | null>(null);
+  const [cancelando, setCancelando] = useState(false);
+  // Cancelar = DELETE (soft): el backend valida la transición y libera conductor/asignación.
+  const cancelar = useApiMutation(() => api.delete(`/ordenes/${ordenId}`), ["ordenes", "asignaciones", "conductores"]);
   const refreshOrden = () => { qc.invalidateQueries({ queryKey: ["orden", ordenId] }); refetch(); };
 
   if (isLoading || !orden) return <PageLoader />;
@@ -147,6 +153,11 @@ export default function OrdenDetailPage() {
               }
             >
               <RouteIcon className="h-4 w-4" /> Optimizar
+            </Button>
+          )}
+          {can("ordenes", "delete") && !terminal && (
+            <Button variant="danger" onClick={() => setCancelando(true)}>
+              <XCircle className="h-4 w-4" /> Cancelar orden
             </Button>
           )}
         </div>
@@ -244,8 +255,11 @@ export default function OrdenDetailPage() {
                       <p className="truncate text-sm font-medium text-slate-800">{d.direccion}</p>
                       <div className="flex items-center gap-1.5">
                         <StatusBadge kind="parada" value={d.estado === "Entregado" ? "Visitada" : d.estado === "Fallida" ? "Omitida" : "Pendiente"} />
+                        {editable && (
+                          <button title="Editar destino (dirección, peso, dimensiones)" onClick={() => setEditDest(d)} className="text-slate-300 hover:text-brand-600"><Pencil className="h-3.5 w-3.5" /></button>
+                        )}
                         {editable && (orden.destinos?.length ?? 1) > 1 && (
-                          <button onClick={() => delDestino.mutate(d.id, { onSuccess: () => { toast.success("Destino eliminado"); refreshOrden(); }, onError: (e) => toast.error(apiError(e)) })} className="text-slate-300 hover:text-rose-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <button title="Quitar destino" onClick={() => delDestino.mutate(d.id, { onSuccess: () => { toast.success("Destino eliminado"); refreshOrden(); }, onError: (e) => toast.error(apiError(e)) })} className="text-slate-300 hover:text-rose-500"><Trash2 className="h-3.5 w-3.5" /></button>
                         )}
                       </div>
                     </div>
@@ -336,7 +350,72 @@ export default function OrdenDetailPage() {
       </div>
 
       {addDest && <AddDestinoModal ordenId={ordenId} onClose={() => setAddDest(false)} onDone={refreshOrden} />}
+      {editDest && <EditDestinoModal ordenId={ordenId} destino={editDest} onClose={() => setEditDest(null)} onDone={refreshOrden} />}
+      <ConfirmModal
+        open={cancelando}
+        title="Cancelar orden"
+        description={`¿Cancelar la orden #${orden.id}? Se libera al conductor y la asignación asociada; esta acción no se puede deshacer.`}
+        danger
+        confirmLabel="Cancelar orden"
+        loading={cancelar.isPending}
+        onClose={() => setCancelando(false)}
+        onConfirm={() =>
+          cancelar.mutate(undefined, {
+            onSuccess: () => { toast.success("Orden cancelada"); setCancelando(false); refreshOrden(); },
+            onError: (e) => toast.error(apiError(e)),
+          })
+        }
+      />
     </div>
+  );
+}
+
+function EditDestinoModal({ ordenId, destino, onClose, onDone }: { ordenId: number; destino: Destino; onClose: () => void; onDone: () => void }) {
+  const [direccion, setDireccion] = useState(destino.direccion);
+  const [nombre, setNombre] = useState(destino.nombre_destinatario ?? "");
+  const [punto, setPunto] = useState<LatLng | null>(
+    destino.lat != null && destino.lon != null ? [destino.lat, destino.lon] : null,
+  );
+  const [peso, setPeso] = useState(destino.peso_kg != null ? String(destino.peso_kg) : "");
+  const [largo, setLargo] = useState(destino.largo_cm != null ? String(destino.largo_cm) : "");
+  const [ancho, setAncho] = useState(destino.ancho_cm != null ? String(destino.ancho_cm) : "");
+  const [alto, setAlto] = useState(destino.alto_cm != null ? String(destino.alto_cm) : "");
+  const m = useApiMutation((body: any) => api.patch(`/ordenes/${ordenId}/destinos/${destino.id}`, body), []);
+  const num = (v: string) => (v.trim() === "" ? null : Number(v));
+  const submit = () => {
+    if (!direccion) return toast.error("Indica la dirección del destino");
+    m.mutate(
+      {
+        direccion, nombre_destinatario: nombre || null,
+        ...(punto ? { lat: punto[0], lon: punto[1] } : {}),
+        peso_kg: num(peso), largo_cm: num(largo), ancho_cm: num(ancho), alto_cm: num(alto),
+      },
+      { onSuccess: () => { toast.success("Destino actualizado"); onDone(); onClose(); }, onError: (e) => toast.error(apiError(e)) },
+    );
+  };
+  return (
+    <Modal open onClose={onClose} title={`Editar destino #${destino.secuencia}`} description="Recalcula el precio y la ruta de la orden."
+      footer={<><Button variant="outline" onClick={onClose}>Cancelar</Button><Button loading={m.isPending} onClick={submit}>Guardar</Button></>}>
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Dirección" required><Input value={direccion} onChange={(e) => setDireccion(e.target.value)} /></Field>
+          <Field label="Destinatario"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field label="Peso (kg)"><Input type="number" min="0" step="0.1" value={peso} onChange={(e) => setPeso(e.target.value)} placeholder="0" /></Field>
+          <Field label="Largo (cm)"><Input type="number" min="0" step="1" value={largo} onChange={(e) => setLargo(e.target.value)} placeholder="0" /></Field>
+          <Field label="Ancho (cm)"><Input type="number" min="0" step="1" value={ancho} onChange={(e) => setAncho(e.target.value)} placeholder="0" /></Field>
+          <Field label="Alto (cm)"><Input type="number" min="0" step="1" value={alto} onChange={(e) => setAlto(e.target.value)} placeholder="0" /></Field>
+        </div>
+        <LocationPicker
+          value={punto}
+          onChange={async (p) => { setPunto(p); if (p) { const dir = await reverseGeocode(p[0], p[1]); if (dir) setDireccion(dir); } }}
+          height={220}
+          color="#f43f5e"
+        />
+        <p className="text-xs text-slate-400">Mueve el punto en el mapa para cambiar la ubicación (la dirección se completa sola).</p>
+      </div>
+    </Modal>
   );
 }
 

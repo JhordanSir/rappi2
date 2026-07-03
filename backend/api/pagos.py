@@ -171,6 +171,7 @@ async def list_pagos(
     skip: int = 0,
     limit: int = Query(50, le=200),
     estado: str | None = None,
+    proveedor: str | None = Query(None, description="Pasarela ('mercadopago', …) o 'manual' (staff)"),
     desde: datetime | None = None,
     hasta: datetime | None = None,
     db: AsyncSession = Depends(get_db),
@@ -183,6 +184,12 @@ async def list_pagos(
         stmt = stmt.where(Pago.orden_id.in_(select(Orden.id).where(Orden.cliente_id == scope.cliente_id)))
     if estado is not None:
         stmt = stmt.where(Pago.estado == estado)
+    if proveedor is not None:
+        # 'manual' = pagos registrados por el staff (sin pasarela → proveedor NULL).
+        if proveedor == "manual":
+            stmt = stmt.where(Pago.proveedor.is_(None))
+        else:
+            stmt = stmt.where(Pago.proveedor == proveedor)
     if desde is not None:
         stmt = stmt.where(Pago.fecha_pago >= desde)
     if hasta is not None:

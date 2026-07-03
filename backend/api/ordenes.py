@@ -22,6 +22,7 @@ from schemas.ordenes import (
     CotizacionResponse,
     CotizarRequest,
     DestinoIn,
+    DestinoUpdate,
     OrdenCreate,
     OrdenResponse,
     OrdenUpdate,
@@ -77,7 +78,11 @@ async def list_ordenes(
     limit: int = Query(50, le=200),
     cliente_id: int | None = None,
     estado: str | None = None,
-    q: str | None = Query(None, description="Búsqueda por ID o dirección (origen/destino)"),
+    q: str | None = Query(None, description="Búsqueda por ID, dirección o cliente (nombre/email)"),
+    desde: datetime | None = Query(None, description="fecha_creacion >= desde"),
+    hasta: datetime | None = Query(None, description="fecha_creacion <= hasta"),
+    nivel_servicio: str | None = None,
+    distrito: str | None = Query(None, description="Distrito de origen O destino (parcial)"),
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("ordenes", "read")),
@@ -97,9 +102,25 @@ async def list_ordenes(
         stmt = stmt.where(Orden.cliente_id == cliente_id)
     if estado is not None:
         stmt = stmt.where(Orden.estado == estado)
+    if desde is not None:
+        stmt = stmt.where(Orden.fecha_creacion >= desde)
+    if hasta is not None:
+        stmt = stmt.where(Orden.fecha_creacion <= hasta)
+    if nivel_servicio is not None:
+        stmt = stmt.where(Orden.nivel_servicio == nivel_servicio)
+    if distrito:
+        d = f"%{distrito.strip()}%"
+        stmt = stmt.where(or_(Orden.distrito_origen.ilike(d), Orden.distrito_destino.ilike(d)))
     if q:
         like = f"%{q.strip()}%"
-        condiciones = [Orden.direccion_origen.ilike(like), Orden.direccion_destino.ilike(like)]
+        condiciones = [
+            Orden.direccion_origen.ilike(like),
+            Orden.direccion_destino.ilike(like),
+            # También por datos del cliente (nombre/email) — el staff busca así.
+            Orden.cliente_id.in_(
+                select(Cliente.id).where(or_(Cliente.nombre.ilike(like), Cliente.email.ilike(like)))
+            ),
+        ]
         termino = q.strip().lstrip("#")
         if termino.isdigit():
             condiciones.append(Orden.id == int(termino))
@@ -407,6 +428,39 @@ async def add_destino(
         peso_kg=payload.peso_kg, largo_cm=payload.largo_cm, ancho_cm=payload.ancho_cm, alto_cm=payload.alto_cm,
         nombre_destinatario=payload.nombre_destinatario,
     ))
+    await db.commit()
+    await _recalcular_total_y_ruta(db, orden, mongo_db)
+    return await _get_orden_full(db, orden_id)
+
+
+@router.patch("/{orden_id}/destinos/{destino_id}", response_model=OrdenResponse)
+async def update_destino(
+    orden_id: int,
+    destino_id: int,
+    payload: DestinoUpdate,
+    db: AsyncSession = Depends(get_db),
+    mongo_db = Depends(get_mongo_db),
+    scope: UserScope = Depends(get_scope),
+    _: object = Depends(require_permiso("ordenes", "write")),
+):
+    """Edita un destino (dirección y/o peso/dimensiones) de una orden aún editable;
+    recalcula precio y ruta (mismo criterio que agregar/quitar destinos)."""
+    orden = await db.get(Orden, orden_id)
+    if orden is None or not await orden_en_alcance(db, scope, orden):
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if orden.estado not in _ESTADOS_EDITABLES:
+        raise HTTPException(status_code=409, detail=f"No se pueden editar destinos con la orden en '{orden.estado}'")
+    destino = await db.get(Destino, destino_id)
+    if destino is None or destino.orden_id != orden_id:
+        raise HTTPException(status_code=404, detail="Destino no encontrado")
+    update = payload.model_dump(exclude_unset=True)
+    if "direccion" in update and not update["direccion"]:
+        raise HTTPException(status_code=400, detail="El destino requiere dirección")
+    # Si cambia la dirección sin coordenadas explícitas, re-geocodificar.
+    if "direccion" in update and update.get("lat") is None and update.get("lon") is None:
+        update["lat"], update["lon"] = await resolver_coords(update["direccion"], None, None)
+    for k, v in update.items():
+        setattr(destino, k, v)
     await db.commit()
     await _recalcular_total_y_ruta(db, orden, mongo_db)
     return await _get_orden_full(db, orden_id)

@@ -162,7 +162,14 @@ function UsuarioForm({ usuario, roles, onClose }: { usuario: Usuario | null; rol
   };
 
   return (
-    <Modal open onClose={onClose} title={isEdit ? "Editar usuario" : "Nuevo usuario"} footer={<><Button variant="outline" onClick={onClose}>Cancelar</Button><Button loading={m.isPending} onClick={submit}>{isEdit ? "Guardar" : "Crear"}</Button></>}>
+    <Modal
+      open
+      onClose={onClose}
+      title={isEdit ? "Editar usuario" : "Nuevo usuario"}
+      description={isEdit
+        ? "Los cambios (email, rol, contraseña, estado) se sincronizan con Keycloak."
+        : "La cuenta se crea en Keycloak (proveedor de identidad): podrá iniciar sesión de inmediato."}
+      footer={<><Button variant="outline" onClick={onClose}>Cancelar</Button><Button loading={m.isPending} onClick={submit}>{isEdit ? "Guardar" : "Crear"}</Button></>}>
       <div className="space-y-4">
         {!isEdit && <Field label="Usuario" required><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>}
         <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>

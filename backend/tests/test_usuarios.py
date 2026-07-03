@@ -1,9 +1,34 @@
-"""Ciclo de vida de usuarios: soft-delete, re-registro con el mismo correo (409 claro)
-y reactivación por el admin con cascada a las fichas Cliente/Conductor."""
+"""Ciclo de vida de usuarios: creación federada en Keycloak (espejo local con sub),
+soft-delete, re-registro con el mismo correo (409 claro) y reactivación por el admin
+con cascada a las fichas Cliente/Conductor."""
+import uuid
+
+import pytest
 from sqlalchemy.future import select
 
 from models.clientes import Cliente
 from models.roles import Rol
+from models.usuarios import Usuario
+from services import keycloak_admin
+
+
+@pytest.fixture(autouse=True)
+def _keycloak_admin_fake(monkeypatch):
+    """La gestión de usuarios habla con la Admin API de Keycloak; aquí se simula
+    (sub aleatorio, operaciones no-op) para no depender del servidor ni ensuciar
+    el realm. La integración real se verifica E2E contra el Keycloak local."""
+
+    async def _crear(username, email, password, rol):
+        return str(uuid.uuid4())
+
+    async def _nada(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(keycloak_admin, "crear_usuario", _crear)
+    monkeypatch.setattr(keycloak_admin, "actualizar", _nada)
+    monkeypatch.setattr(keycloak_admin, "reset_password", _nada)
+    monkeypatch.setattr(keycloak_admin, "asignar_rol", _nada)
+    monkeypatch.setattr(keycloak_admin, "eliminar", _nada)
 
 
 async def _rol_id(db, nombre: str) -> int:
@@ -23,6 +48,13 @@ async def test_recrear_correo_inactivo_da_409_y_reactivar_revive_ficha(client, f
     uid = creado.json()["id"]
     cliente_id = creado.json()["cliente_id"]
     assert cliente_id is not None  # rol Cliente ⇒ ficha enlazada
+
+    # El espejo local queda federado: sub de Keycloak y SIN hash local (la credencial
+    # vive en Keycloak).
+    u = (await db.execute(select(Usuario).where(Usuario.id == uid))).scalar_one()
+    assert u.keycloak_sub is not None
+    assert u.auth_provider == "keycloak"
+    assert u.password_hash is None
 
     # Soft-delete: usuario y ficha quedan inactivos.
     assert (await client.delete(f"/api/usuarios/{uid}")).status_code == 204

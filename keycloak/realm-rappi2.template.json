@@ -87,9 +87,9 @@
       "emailVerified": true,
       "firstName": "Cliente",
       "lastName": "Demo",
-      "email": "cliente1@rappi2.com",
+      "email": "cliente1@demo.rappi2.com",
       "credentials": [
-        { "type": "password", "value": "cliente123", "temporary": false }
+        { "type": "password", "value": "demo123", "temporary": false }
       ],
       "realmRoles": ["Cliente"]
     },
@@ -99,9 +99,21 @@
       "emailVerified": true,
       "firstName": "Conductor",
       "lastName": "Demo",
-      "email": "conductor1@rappi2.com",
+      "email": "conductor1@demo.rappi2.com",
       "credentials": [
-        { "type": "password", "value": "conductor123", "temporary": false }
+        { "type": "password", "value": "demo123", "temporary": false }
+      ],
+      "realmRoles": ["Conductor"]
+    },
+    {
+      "username": "conductor2",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Conductor",
+      "lastName": "Demo 2",
+      "email": "conductor2@demo.rappi2.com",
+      "credentials": [
+        { "type": "password", "value": "demo123", "temporary": false }
       ],
       "realmRoles": ["Conductor"]
     }

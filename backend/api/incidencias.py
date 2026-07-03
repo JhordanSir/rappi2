@@ -23,6 +23,8 @@ async def list_incidencias(
     limit: int = Query(50, le=200),
     asignacion_id: int | None = None,
     severidad_min: int | None = None,
+    origen: str | None = Query(None, description="chofer | automatica | admin"),
+    tipo: str | None = Query(None, description="Tipo de incidencia (parcial)"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_permiso("incidencias", "read")),
 ):
@@ -31,6 +33,10 @@ async def list_incidencias(
         stmt = stmt.where(Incidencia.asignacion_id == asignacion_id)
     if severidad_min is not None:
         stmt = stmt.where(Incidencia.severidad >= severidad_min)
+    if origen is not None:
+        stmt = stmt.where(Incidencia.origen == origen)
+    if tipo:
+        stmt = stmt.where(Incidencia.tipo.ilike(f"%{tipo.strip()}%"))
     stmt = stmt.order_by(Incidencia.fecha.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()

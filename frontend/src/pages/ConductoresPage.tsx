@@ -29,13 +29,17 @@ export default function ConductoresPage() {
   const [viewing, setViewing] = useState<Conductor | null>(null);
   const [toDelete, setToDelete] = useState<Conductor | null>(null);
   const [page, setPage] = useState(0);
+  const [dispo, setDispo] = useState("");
+  const [soloActivos, setSoloActivos] = useState(true);
   const dq = useDebouncedValue(search.trim());
-  useEffect(() => setPage(0), [dq]);
+  useEffect(() => setPage(0), [dq, dispo, soloActivos]);
   // Paginación y búsqueda server-side (header X-Total-Count + parámetro q).
   const { data, isLoading } = usePaginated<Conductor>("conductores", "/conductores/", {
     skip: page * PAGE_SIZE,
     limit: PAGE_SIZE,
+    activo: soloActivos,
     ...(dq ? { q: dq } : {}),
+    ...(dispo ? { disponibilidad: dispo } : {}),
   });
   const writable = can("conductores", "write");
   const deletable = can("conductores", "delete");
@@ -52,7 +56,17 @@ export default function ConductoresPage() {
         subtitle="Personal de reparto y su vehículo asignado"
         actions={writable && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nuevo conductor</Button>}
       />
-      <Toolbar><SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre o licencia…" /></Toolbar>
+      <Toolbar>
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre o licencia…" />
+        <Select value={dispo} onChange={(e) => setDispo(e.target.value)} className="h-10 w-auto" title="Disponibilidad">
+          <option value="">Toda disponibilidad</option>
+          {DISPO.map((d) => <option key={d} value={d}>{d}</option>)}
+        </Select>
+        <Select value={soloActivos ? "activos" : "inactivos"} onChange={(e) => setSoloActivos(e.target.value === "activos")} className="h-10 w-auto" title="Estado">
+          <option value="activos">Activos</option>
+          <option value="inactivos">Inactivos</option>
+        </Select>
+      </Toolbar>
       <Card>
         <DataTable
           rows={rows}

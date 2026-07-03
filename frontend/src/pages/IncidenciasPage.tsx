@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Plus, TriangleAlert, Trash2, Paperclip, Upload, Download, FileImage } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
-import { useIncidencias, useAsignaciones, useEvidencias, useApiMutation } from "@/api/hooks";
+import { useIncidencias, useAsignaciones, useEvidencias, useApiMutation, useDebouncedValue } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthContext";
 import type { Incidencia, TipoEvidencia } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -26,11 +26,20 @@ export default function IncidenciasPage() {
   const { can } = useAuth();
   const [search, setSearch] = useState("");
   const [sevMin, setSevMin] = useState("");
+  const [origen, setOrigen] = useState("");
   const [creating, setCreating] = useState(false);
   const [evid, setEvid] = useState<Incidencia | null>(null);
   const [detail, setDetail] = useState<Incidencia | null>(null);
   const [toDelete, setToDelete] = useState<Incidencia | null>(null);
-  const { data, isLoading } = useIncidencias({ limit: 200, ...(sevMin ? { severidad_min: Number(sevMin) } : {}) });
+  // Búsqueda por tipo server-side (parámetro `tipo`, ilike) + filtros origen/severidad.
+  const dq = useDebouncedValue(search.trim());
+  const { data, isLoading } = useIncidencias({
+    limit: 200,
+    ...(sevMin ? { severidad_min: Number(sevMin) } : {}),
+    ...(origen ? { origen } : {}),
+    ...(dq && !/^#?\d+$/.test(dq) ? { tipo: dq } : {}),
+    ...(dq && /^#?\d+$/.test(dq) ? { asignacion_id: Number(dq.replace("#", "")) } : {}),
+  });
   const writable = can("incidencias", "write");
   const del = useApiMutation((id: number) => api.delete(`/incidencias/${id}`), ["incidencias"]);
   const setSev = useApiMutation(
@@ -38,10 +47,7 @@ export default function IncidenciasPage() {
     ["incidencias"],
   );
 
-  const rows = useMemo(
-    () => (data ?? []).filter((i) => !search || i.tipo.toLowerCase().includes(search.toLowerCase()) || String(i.asignacion_id).includes(search)),
-    [data, search],
-  );
+  const rows = data;
 
   return (
     <div>
@@ -51,10 +57,16 @@ export default function IncidenciasPage() {
         actions={writable && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Reportar incidencia</Button>}
       />
       <Toolbar>
-        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por tipo o asignación…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar por tipo o #asignación…" />
         <Select value={sevMin} onChange={(e) => setSevMin(e.target.value)} className="h-10 w-auto">
           <option value="">Toda severidad</option>
           {[1, 2, 3, 4, 5].map((s) => <option key={s} value={s}>Severidad ≥ {s}</option>)}
+        </Select>
+        <Select value={origen} onChange={(e) => setOrigen(e.target.value)} className="h-10 w-auto" title="Origen del reporte">
+          <option value="">Todo origen</option>
+          <option value="chofer">Chofer</option>
+          <option value="automatica">Automática</option>
+          <option value="admin">Central</option>
         </Select>
       </Toolbar>
       <Card>

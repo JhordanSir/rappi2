@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +41,9 @@ async def list_clientes(
     skip: int = 0,
     limit: int = Query(50, le=200),
     activo: bool | None = True,
-    q: str | None = Query(None, description="Busca por nombre o email"),
+    q: str | None = Query(None, description="Busca por nombre, email, teléfono o documento"),
+    desde: datetime | None = Query(None, description="fecha_registro >= desde"),
+    hasta: datetime | None = Query(None, description="fecha_registro <= hasta"),
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("clientes", "read")),
@@ -53,9 +57,18 @@ async def list_clientes(
         stmt = stmt.where(Cliente.id == scope.cliente_id)
     if activo is not None:
         stmt = stmt.where(Cliente.activo == activo)
+    if desde is not None:
+        stmt = stmt.where(Cliente.fecha_registro >= desde)
+    if hasta is not None:
+        stmt = stmt.where(Cliente.fecha_registro <= hasta)
     if q:
         patron = f"%{q.strip()}%"
-        stmt = stmt.where(or_(Cliente.nombre.ilike(patron), Cliente.email.ilike(patron)))
+        stmt = stmt.where(or_(
+            Cliente.nombre.ilike(patron),
+            Cliente.email.ilike(patron),
+            Cliente.telefono.ilike(patron),
+            Cliente.cc_id.ilike(patron),
+        ))
     stmt = stmt.order_by(Cliente.id)
     # Body = lista simple; el total (sin paginar) viaja en el header X-Total-Count.
     return await paginate(db, stmt, response, skip, limit)
