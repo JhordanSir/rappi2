@@ -5,6 +5,7 @@ from sqlalchemy.future import select
 
 import api.asignaciones as asg_mod
 from models.asignaciones import Asignacion
+from models.destinos import Destino
 
 
 @pytest.fixture(autouse=True)
@@ -87,6 +88,43 @@ async def test_cancelar_orden_libera_conductor_y_asignacion(client, factoria, db
     assert orden.estado == "Cancelado"
     assert asignacion.estado == "Cancelada"
     assert cond.disponibilidad == "Disponible"
+
+
+async def test_reabrir_run_entregado_requiere_flag(client, factoria, db):
+    """Reabrir un run 100% entregado sin el flag deja al conductor sin nada que
+    re-ejecutar → 400 con instrucción; con `reabrir_entregados` el destino vuelve a
+    Pendiente y el flujo completo se re-ejecuta (bug del 'estado entregado' pegado)."""
+    cli = await factoria.cliente()
+    veh = await factoria.vehiculo()
+    cond = await factoria.conductor()
+    orden = await factoria.orden(cli.id)
+    asg_id = (await _asignar(client, orden.id, cond.id, veh.placa)).json()["id"]
+
+    # Run completado directamente en BD (entregar vía API exige multipart + GridFS).
+    destino = (await db.execute(select(Destino).where(Destino.orden_id == orden.id))).scalar_one()
+    asignacion = await db.get(Asignacion, asg_id)
+    destino.estado = "Entregado"
+    destino.entrega_receptor = "Receptor X"
+    orden.estado = "Entregado"
+    asignacion.estado = "Finalizada"
+    cond.disponibilidad = "Disponible"
+    await db.commit()
+
+    # Sin flag: nada que reabrir (todos entregados) → 400 accionable.
+    r = await client.patch(f"/api/asignaciones/{asg_id}/reabrir")
+    assert r.status_code == 400
+    assert "entregados" in r.json()["detail"]
+
+    # Con flag: el destino se resetea y el conductor puede volver a entregar.
+    r = await client.patch(f"/api/asignaciones/{asg_id}/reabrir", json={"reabrir_entregados": True})
+    assert r.status_code == 200, r.text
+    await db.refresh(destino)
+    await db.refresh(orden)
+    await db.refresh(cond)
+    assert destino.estado == "Pendiente"
+    assert destino.entrega_receptor is None
+    assert orden.estado == "En Tránsito"
+    assert cond.disponibilidad == "Ocupado"
 
 
 async def test_eliminar_asignacion_revierte_orden_y_conductor(client, factoria, db):

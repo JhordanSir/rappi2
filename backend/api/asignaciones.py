@@ -34,6 +34,7 @@ from schemas.asignaciones import (
     AsignacionUpdate,
     EntregaOut,
     FinalizarAsignacionRequest,
+    ReabrirAsignacionRequest,
     SugerenciaConductor,
 )
 from schemas.common import TipoEvidencia
@@ -601,14 +602,19 @@ async def finalizar_asignacion(
 @router.patch("/{asignacion_id}/reabrir", response_model=AsignacionResponse)
 async def reabrir_asignacion(
     asignacion_id: int,
+    payload: ReabrirAsignacionRequest | None = None,
     db: AsyncSession = Depends(get_db),
     scope: UserScope = Depends(get_scope),
     _: object = Depends(require_permiso("asignaciones", "write")),
 ):
     """Reapertura de un run cerrado por error: vuelve la asignación a 'EnCurso', sus órdenes
-    a 'En Tránsito' y ocupa de nuevo al conductor. Los destinos NO entregados ('Fallida') se
-    reabren a 'Pendiente' para poder reintentar la entrega; los 'Entregado' (y su evidencia)
-    se conservan."""
+    a 'En Tránsito' y ocupa de nuevo al conductor.
+
+    Por defecto solo se reabren los destinos 'Fallida' (reintento de los no entregados).
+    Con `reabrir_entregados=true` también se resetean los 'Entregado' a 'Pendiente' —
+    corrige cierres forzados o entregas marcadas por error, de modo que el CONDUCTOR
+    vuelva a ver la entrega como pendiente y pueda re-ejecutar el flujo (la evidencia
+    previa se conserva en el historial de la asignación)."""
     _solo_staff(scope)
     asignacion = await _asg_full(db, asignacion_id)
     if asignacion is None:
@@ -616,21 +622,36 @@ async def reabrir_asignacion(
     if asignacion.estado != "Finalizada":
         raise HTTPException(status_code=400, detail=f"Solo se reabre una asignacion Finalizada (actual: {asignacion.estado})")
 
-    asignacion.estado = "EnCurso"
-    asignacion.fecha_fin = None
-    # Reabrir los destinos fallidos para permitir el reintento de entrega.
+    reabrir_entregados = bool(payload and payload.reabrir_entregados)
+    estados_a_reabrir = ("Fallida", "Entregado") if reabrir_entregados else ("Fallida",)
     destinos = (
         await db.execute(select(Destino).where(Destino.orden_id.in_([o.id for o in asignacion.ordenes])))
     ).scalars().all()
-    for d in destinos:
-        if d.estado == "Fallida":
-            d.estado = "Pendiente"
-            d.nota = None
-            d.fecha_entrega = None
-            parada = (await db.execute(select(Parada).where(Parada.destino_id == d.id))).scalars().first()
-            if parada is not None:
-                parada.estado = "Pendiente"
-                parada.fecha_paso = None
+    candidatos = [d for d in destinos if d.estado in estados_a_reabrir]
+    if not candidatos:
+        # Sin esto, un run 100% entregado se "reabría" dejando al conductor una lista
+        # congelada en 'Entregado', sin nada que re-ejecutar (bug reportado).
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No hay destinos que reabrir: todos están entregados. "
+                "Activa «reabrir también los entregados» para reiniciar la entrega completa."
+            ),
+        )
+
+    asignacion.estado = "EnCurso"
+    asignacion.fecha_fin = None
+    for d in candidatos:
+        d.estado = "Pendiente"
+        d.nota = None
+        d.fecha_entrega = None
+        d.entrega_receptor = None
+        d.entrega_lat = None
+        d.entrega_lon = None
+        parada = (await db.execute(select(Parada).where(Parada.destino_id == d.id))).scalars().first()
+        if parada is not None:
+            parada.estado = "Pendiente"
+            parada.fecha_paso = None
     cambiadas: list[Orden] = []
     for orden in asignacion.ordenes:
         if orden.estado in ("Entregado", "Cancelado"):

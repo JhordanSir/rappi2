@@ -50,7 +50,15 @@ export default function AsignacionesPage() {
 
   const condName = (id: number) => conductores?.find((c) => c.id === id)?.nombre ?? `#${id}`;
   const iniciar = useApiMutation((id: number) => api.patch(`/asignaciones/${id}/iniciar`), ["asignaciones", "ordenes"]);
-  const reabrir = useApiMutation((id: number) => api.patch(`/asignaciones/${id}/reabrir`), ["asignaciones", "ordenes"]);
+  // Reabrir con opción: por defecto solo reintenta los fallidos; con el check también
+  // resetea los entregados (el conductor vuelve a ver la entrega pendiente).
+  const [toReopen, setToReopen] = useState<Asignacion | null>(null);
+  const [reabrirEntregados, setReabrirEntregados] = useState(false);
+  const reabrir = useApiMutation(
+    ({ id, conEntregados }: { id: number; conEntregados: boolean }) =>
+      api.patch(`/asignaciones/${id}/reabrir`, { reabrir_entregados: conEntregados }),
+    ["asignaciones", "ordenes", "seguimiento"],
+  );
   const del = useApiMutation((id: number) => api.delete(`/asignaciones/${id}`), ["asignaciones"]);
   // Reconstruye la ruta consolidada del run (p. ej. si falló al asignar por OSRM caído).
   const regenRuta = useApiMutation((id: number) => api.post(`/asignaciones/${id}/regenerar-ruta`), ["asignaciones", "rutas", "seguimiento"]);
@@ -135,7 +143,7 @@ export default function AsignacionesPage() {
                     </Button>
                   )}
                   {writable && a.estado === "Finalizada" && (
-                    <Button size="sm" variant="ghost" title="Reabrir: vuelve a EnCurso (corrige un cierre por error)" onClick={() => reabrir.mutate(a.id, { onSuccess: () => toast.success("Asignación reabierta"), onError: (e) => toast.error(apiError(e)) })}>
+                    <Button size="sm" variant="ghost" title="Reabrir: vuelve a EnCurso (corrige un cierre por error)" onClick={() => { setToReopen(a); setReabrirEntregados(false); }}>
                       <RotateCcw className="h-3.5 w-3.5" /> Reabrir
                     </Button>
                   )}
@@ -151,6 +159,50 @@ export default function AsignacionesPage() {
         />
       </Card>
 
+      {toReopen && (
+        <Modal
+          open
+          onClose={() => setToReopen(null)}
+          title={`Reabrir run #${toReopen.id}`}
+          description="Vuelve la asignación a EnCurso y ocupa de nuevo al conductor."
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setToReopen(null)}>Cancelar</Button>
+              <Button
+                loading={reabrir.isPending}
+                onClick={() =>
+                  reabrir.mutate(
+                    { id: toReopen.id, conEntregados: reabrirEntregados },
+                    {
+                      onSuccess: () => { toast.success("Asignación reabierta"); setToReopen(null); },
+                      onError: (e) => toast.error(apiError(e)),
+                    },
+                  )
+                }
+              >
+                <RotateCcw className="h-4 w-4" /> Reabrir
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3 text-sm text-slate-600">
+            <p>Por defecto solo se reabren los destinos <strong>no entregados</strong> (fallidos) para reintentarlos; las entregas confirmadas se conservan.</p>
+            <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <input
+                type="checkbox"
+                checked={reabrirEntregados}
+                onChange={(e) => setReabrirEntregados(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300"
+              />
+              <span>
+                <strong>Reabrir también los destinos entregados.</strong>{" "}
+                El conductor volverá a verlos como pendientes y podrá re-ejecutar la entrega
+                (útil si se cerró por error). La evidencia previa se conserva en el historial.
+              </span>
+            </label>
+          </div>
+        </Modal>
+      )}
       {creating && <AsignacionForm onClose={() => setCreating(false)} />}
       {finalizing && <FinalizarModal asignacion={finalizing} onClose={() => setFinalizing(null)} />}
       {viewing && <EvidenciaModal asignacion={viewing} onClose={() => setViewing(null)} />}

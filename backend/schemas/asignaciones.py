@@ -31,6 +31,16 @@ class AsignacionUpdate(BaseModel):
     fecha_fin: Optional[datetime] = None
 
 
+class ReabrirAsignacionRequest(BaseModel):
+    """Opciones al reabrir un run Finalizado.
+
+    Por defecto solo se reabren los destinos FALLIDOS (los entregados conservan su
+    estado y evidencia). Con `reabrir_entregados` también se resetean los entregados —
+    para corregir un cierre forzado o una entrega marcada por error y RE-EJECUTAR el
+    flujo completo (la evidencia previa queda en el historial de la asignación)."""
+    reabrir_entregados: bool = False
+
+
 class FinalizarAsignacionRequest(BaseModel):
     """Datos opcionales de confirmacion de entrega al finalizar la asignacion."""
     lat: Optional[float] = lat_field()

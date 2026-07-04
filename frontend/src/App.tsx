@@ -4,6 +4,7 @@ import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ClienteLayout } from "@/components/layout/ClienteLayout";
 import { ConductorLayout } from "@/components/layout/ConductorLayout";
+import { NAV } from "@/components/layout/nav";
 import { useAuth } from "@/auth/AuthContext";
 import LoginPage from "@/pages/LoginPage";
 
@@ -37,12 +38,22 @@ const PagoEstado = lazy(() => import("@/pages/cliente/PagoEstado"));
 const ConductorHome = lazy(() => import("@/pages/conductor/ConductorHome"));
 const AsignacionDetalle = lazy(() => import("@/pages/conductor/AsignacionDetalle"));
 
+/** Aterrizaje del panel según permisos: el Dashboard exige `reportes`; un rol staff
+ *  sin ese permiso (p. ej. Despachador operativo) aterriza en su primera sección
+ *  visible del menú en lugar de una pantalla que el backend rechazaría con 403. */
+function HomeRedirect() {
+  const { can } = useAuth();
+  if (can("reportes", "read")) return <DashboardPage />;
+  const primera = NAV.flatMap((g) => g.items).find((it) => it.recurso !== null && it.recurso !== "reportes" && can(it.recurso, "read"));
+  return primera ? <Navigate to={primera.to} replace /> : <DashboardPage />;
+}
+
 /** Experiencia interna (Admin / Despachador): el panel administrativo/operativo. */
 function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/" element={<HomeRedirect />} />
         <Route path="/clientes" element={<ClientesPage />} />
         <Route path="/ordenes" element={<OrdenesPage />} />
         <Route path="/ordenes/:id" element={<OrdenDetailPage />} />

@@ -37,7 +37,10 @@ export const NAV: NavGroup[] = [
   {
     title: "Operación",
     items: [
-      { label: "Dashboard", to: "/", icon: LayoutDashboard, recurso: null },
+      // El Dashboard consume /reportes/*: sin ese permiso el backend responde 403,
+      // así que el menú lo exige también (antes era `null` = siempre visible y un rol
+      // sin reportes veía una pantalla que el backend rechazaba).
+      { label: "Dashboard", to: "/", icon: LayoutDashboard, recurso: "reportes" },
       { label: "Órdenes", to: "/ordenes", icon: Package, recurso: "ordenes" },
       { label: "Asignaciones", to: "/asignaciones", icon: ClipboardList, recurso: "asignaciones" },
       { label: "Tracking en vivo", to: "/tracking", icon: Navigation, recurso: "tracking" },

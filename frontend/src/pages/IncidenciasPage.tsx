@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Plus, TriangleAlert, Trash2, Paperclip, Upload, Download, FileImage } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiError } from "@/lib/api";
@@ -241,6 +242,34 @@ function IncidenciaForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+const ES_IMAGEN = /\.(jpe?g|png|gif|webp|bmp|avif)$/i;
+
+/** Miniatura de una evidencia-imagen: descarga el archivo con auth (GridFS) y lo
+ *  muestra inline — antes solo se veía el nombre y había que descargarlo para ver
+ *  la foto (clave para disputas/reclamos). Clic = abrir a tamaño completo. */
+function EvidenciaImagen({ fileId, filename }: { fileId: string; filename: string }) {
+  const { data: url } = useQuery({
+    queryKey: ["evidencia-img", fileId],
+    queryFn: async () => {
+      const res = await api.get(`/incidencias/evidencias/archivos/${fileId}`, { responseType: "blob" });
+      return URL.createObjectURL(res.data as Blob);
+    },
+    staleTime: Infinity,
+  });
+  if (!url) {
+    return (
+      <div className="flex h-24 w-24 items-center justify-center rounded-lg border border-sillar-200 bg-sillar-50">
+        <FileImage className="h-6 w-6 text-stone-300" />
+      </div>
+    );
+  }
+  return (
+    <button type="button" title={`${filename} — clic para ampliar`} onClick={() => window.open(url, "_blank")} className="group relative">
+      <img src={url} alt={filename} className="h-24 w-24 rounded-lg border border-sillar-200 object-cover transition group-hover:opacity-80" />
+    </button>
+  );
+}
+
 async function descargarArchivo(fileId: string, filename: string) {
   try {
     const res = await api.get(`/incidencias/evidencias/archivos/${fileId}`, { responseType: "blob" });
@@ -306,12 +335,22 @@ function EvidenciasModal({ incidencia, onClose, writable }: { incidencia: Incide
                 {ev.descripcion && <span className="text-sm text-stone-600">{ev.descripcion}</span>}
                 <span className="ml-auto text-xs text-stone-400">{formatDate(ev.timestamp)}</span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {ev.archivos.map((a) => (
-                  <button key={a.file_id} onClick={() => descargarArchivo(a.file_id, a.filename)} className="inline-flex items-center gap-1.5 rounded-lg bg-sillar-100 px-2.5 py-1.5 text-xs text-stone-700 hover:bg-sillar-200">
-                    <FileImage className="h-3.5 w-3.5 text-stone-400" /> {a.filename} <Download className="h-3 w-3" />
-                  </button>
-                ))}
+              <div className="flex flex-wrap gap-3">
+                {ev.archivos.map((a) => {
+                  const esImagen = (a.content_type ?? "").startsWith("image/") || ES_IMAGEN.test(a.filename);
+                  return esImagen ? (
+                    <div key={a.file_id} className="space-y-1">
+                      <EvidenciaImagen fileId={a.file_id} filename={a.filename} />
+                      <button onClick={() => descargarArchivo(a.file_id, a.filename)} title={`Descargar ${a.filename}`} className="flex w-24 items-center justify-center gap-1 truncate text-[11px] text-stone-500 hover:text-brand-600">
+                        <Download className="h-3 w-3 shrink-0" /> <span className="truncate">{a.filename}</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button key={a.file_id} onClick={() => descargarArchivo(a.file_id, a.filename)} className="inline-flex items-center gap-1.5 self-start rounded-lg bg-sillar-100 px-2.5 py-1.5 text-xs text-stone-700 hover:bg-sillar-200">
+                      <FileImage className="h-3.5 w-3.5 text-stone-400" /> {a.filename} <Download className="h-3 w-3" />
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}
