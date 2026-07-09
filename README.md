@@ -15,17 +15,17 @@
 
 ## ¿Qué hace? (funciones de un vistazo)
 
-- 🔐 **Auth + RBAC**: autenticación con **Keycloak (OIDC, Authorization Code + PKCE)**; el backend valida el token (no emite JWT propios) y deriva permisos `(recurso, acción)` —con comodín `*`— del rol del token.
-- 🧑‍🤝‍🧑 **4 experiencias por rol** en la misma SPA: **Cliente**, **Conductor (PWA)**, **Despachador** y **Administrador**.
-- 📦 **Ciclo de orden**: crear → **cotizar precio** (server-side) → **pagar (MercadoPago Checkout Pro / modo simulado)** → asignar → entregar (multidestino, entregas parciales, *run* agrupado).
-- 🧭 **Ruteo por calles con OSRM**: geometría, distancia y tiempo reales; geocerca de corredor automática.
-- 📍 **Tracking GPS en tiempo real (SSE + Redis)**: el conductor envía pings, el cliente ve moverse al conductor en vivo; detección de **desvío de ruta**.
-- 🗺️ **Geocercas** (zonas/corredores, `$geoNear`, punto-en-polígono) y **geocoding** inverso/directo.
-- 🧾 **Pagos, facturas y tarifa dinámica** configurable por el admin (base + km + min + peso + recargos por horario).
-- 🛠️ **Incidencias + evidencias** (fotos en GridFS) y **prueba de entrega** (foto/firma).
-- ⭐ **Calificaciones** (cliente → entrega/conductor) que alimentan KPIs y ranking.
-- 🔔 **Notificaciones in-app** (campana + SSE) y **auditoría** HTTP con TTL.
-- 📊 **Reportes/KPIs**: ventas, SLA, tiempos, eficiencia y rating por conductor, top clientes, distribución geográfica, vistas 360°.
+- **Auth + RBAC**: autenticación con **Keycloak (OIDC, Authorization Code + PKCE)**; el backend valida el token (no emite JWT propios) y deriva permisos `(recurso, acción)` —con comodín `*`— del rol del token.
+- **4 experiencias por rol** en la misma SPA: **Cliente**, **Conductor (PWA)**, **Despachador** y **Administrador**.
+- **Ciclo de orden**: crear → **cotizar precio** (server-side) → **pagar (MercadoPago Checkout Pro / modo simulado)** → asignar → entregar (multidestino, entregas parciales, *run* agrupado).
+- **Ruteo por calles con OSRM**: geometría, distancia y tiempo reales; geocerca de corredor automática.
+- **Tracking GPS en tiempo real (SSE + Redis)**: el conductor envía pings, el cliente ve moverse al conductor en vivo; detección de **desvío de ruta**.
+- **Geocercas** (zonas/corredores, `$geoNear`, punto-en-polígono) y **geocoding** inverso/directo.
+- **Pagos, facturas y tarifa dinámica** configurable por el admin (base + km + min + peso + recargos por horario).
+- **Incidencias + evidencias** (fotos en GridFS) y **prueba de entrega** (foto/firma).
+- **Calificaciones** (cliente → entrega/conductor) que alimentan KPIs y ranking.
+- **Notificaciones in-app** (campana + SSE) y **auditoría** HTTP con TTL.
+- **Reportes/KPIs**: ventas, SLA, tiempos, eficiencia y rating por conductor, top clientes, distribución geográfica, vistas 360°.
 
 ## Experiencias por rol
 
@@ -53,7 +53,8 @@ rappi2/
 ├── frontend/                # SPA React 18 + TS + Vite + Tailwind (nginx en prod)
 │   └── src/                 # api/ · auth/ · components/{layout,map,ui} · lib/ · pages/{cliente,conductor,...}
 ├── osrm/                    # entrypoint del OSRM auto-hospedado (prod)
-├── docs/                    # diagramas (Postgres/Mongo) y capturas de endpoints
+├── docs/                    # diagramas (arquitectura/OAuth, Postgres/Mongo) y capturas de endpoints
+├── postman_collection.json  # colección Postman (auth Keycloak + todos los endpoints)
 ├── docker-compose.yml       # base (producción-segura)
 ├── docker-compose.override.yml  # dev (auto): código en caliente + auto-seed + puertos BD
 ├── docker-compose.prod.yml      # prod: OSRM auto-hospedado + workers
@@ -86,7 +87,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 
 - Frontend: <http://localhost:5173> · API / Swagger: <http://localhost:8000/docs>
 - Consola Keycloak: <http://localhost:8080> (admin / `KEYCLOAK_ADMIN_PASSWORD`)
-- Usuarios de prueba (en Keycloak, realm `rappi2`): **admin / admin123** (Admin) · **cliente1 / cliente123** (Cliente) · **conductor1 / conductor123** (Conductor)
+- Usuarios de prueba (en Keycloak, realm `rappi2`): **admin / admin123** (Admin) · **cliente1 / demo123** (Cliente) · **conductor1 / demo123** (Conductor)
 
 Archivos compose: `docker-compose.yml` (base producción-segura) · `docker-compose.override.yml`
 (dev, auto) · `docker-compose.prod.yml` (prod: OSRM + workers). Diferencia dev↔prod en detalle:
@@ -248,7 +249,7 @@ Documentación principal:
 
 Colecciones de pruebas y validación:
 
-- `postman.json`
+- `postman_collection.json` (raíz) — auth Keycloak (Get Token) + todos los endpoints
 - Colección Postman o Thunder Client
 - Checklist de pruebas:
   - Casos felices
@@ -321,7 +322,7 @@ geoespacial/telemetría/binarios, con **Redis** como *backplane* de tiempo real 
 
 ## Funcionalidades del sistema (cada función)
 
-### 🧑 Cliente — portal de autoservicio
+### Cliente — portal de autoservicio
 - **Login con Keycloak** (OIDC); el alta de cuentas se gestiona en Keycloak. Al primer acceso, el usuario se provisiona localmente y se le crea su ficha de Cliente.
 - **Mis pedidos**: lista paginada con estado en vivo (`GET /api/ordenes`).
 - **Nuevo envío**: elige origen/destino en mapa, **cotiza el precio** server-side (`POST /api/ordenes/cotizar`) y crea la orden (`POST /api/ordenes`).
@@ -330,24 +331,24 @@ geoespacial/telemetría/binarios, con **Redis** como *backplane* de tiempo real 
 - **Calificar** la entrega y al conductor (`POST /api/ordenes/{id}/calificacion`).
 - **Direcciones** guardadas y **campana de notificaciones** en tiempo real.
 
-### 🛵 Conductor — PWA móvil
+### Conductor — PWA móvil
 - **Mis asignaciones / hoy** (`GET /api/asignaciones?mias`) y **detalle** con ruta + paradas en mapa.
 - **Iniciar / Finalizar** la asignación (`PATCH …/iniciar`, `…/finalizar`) → cambia estados de orden y conductor.
 - **Captura GPS en vivo**: envía pings mientras está `EnCurso` (`POST /api/tracking/ping`).
 - **Entrega por destino**: marcar entregado/fallido (`POST …/destinos/{id}/entregar` · `/fallar`) y **prueba de entrega** (foto/firma → GridFS).
 - **Reportar incidencia** con evidencia · marcar **parada visitada** (`PATCH /api/rutas/{id}/paradas/{id}/visitar`).
 
-### 🧭 Despachador — panel de operación
+### Despachador — panel de operación
 - **Órdenes** pendientes/pagadas, **asignación híbrida**: sugerencia del conductor disponible más cercano (`GET /api/asignaciones/sugerencia` vía geoNear) y confirmación 1-clic.
 - **Rutas** (planificar/optimizar/secuenciar), **geocercas**, **tracking** de flota y **incidencias**.
 - **Reportes operativos** en tiempo real (`GET /api/reportes/operativo`).
 
-### 🛡️ Administrador — panel de sistema
+### Administrador — panel de sistema
 - **Usuarios** y **auditoría**; la **asignación de roles** y la gestión de sesiones viven en la **consola de Keycloak**.
 - **Roles & Permisos**: los permisos finos (`recurso:acción`) se editan con una **matriz de multiselección** y se guardan en una sola operación.
 - **Tarifa dinámica** editable (`GET/PATCH /api/tarifa`) y **reportes globales** (ventas, SLA, ratings, KPIs).
 
-### 🔁 Funciones transversales
+### Funciones transversales
 | Función | Cómo |
 |---------|------|
 | **Auth & RBAC** | **Keycloak (OIDC + PKCE)** emite el token; el backend lo valida (JWKS) y deriva permisos `(recurso, acción)` —con `*`— del rol del token; *ownership* por fila (cliente/conductor solo ven lo suyo). |
@@ -451,6 +452,24 @@ La motivación técnica y de negocio que se desprende del diseño es:
 
 ## Arquitectura
 
+### Componentes y flujo OAuth
+
+![Arquitectura y flujo OAuth 2.0 (Authorization Code + PKCE) con Keycloak](docs/arquitectura_oauth.png)
+
+Diagrama generado por código ([`docs/diagrams/oauth_flow.py`](docs/diagrams/oauth_flow.py); ver
+[docs/diagrams/README.md](docs/diagrams/README.md) para regenerarlo). El flujo es el **realmente
+implementado**: el frontend SPA (cliente **público** con PKCE) hace el intercambio `code → token`
+contra Keycloak en el navegador; el backend FastAPI **no emite ni canjea tokens**, solo los **valida**
+contra el JWKS de Keycloak y aplica *ownership* por `sub`.
+
+1. **SPA → Keycloak**: login + consent (Authorization Code + PKCE, `code_challenge` S256).
+2. **Keycloak → SPA**: redirección con el `code`.
+3. **SPA → Keycloak** (token endpoint): `code` + `code_verifier` → **access token (RS256)**.
+4. **SPA → Backend**: petición con `Authorization: Bearer <token>`.
+5. **Backend → Keycloak (JWKS)**: valida firma, `iss`, `aud` y `exp` (JWKS cacheado en memoria).
+6. **Backend → PostgreSQL**: provisiona/enlaza el usuario local por `sub` y carga su rol + permisos.
+7. **Backend → SPA**: responde JSON **solo con los datos del dueño** (`sub`).
+
 ### Estilo y componentes
 
 Arquitectura tipo API monolítica modular:
@@ -553,6 +572,13 @@ datos flexibles y consultar eventos del servicio de manera rápida.
 ---
 
 ## Evidencias Postman
+
+> **Cómo probar:** importa [`postman_collection.json`](postman_collection.json) (raíz). Ejecuta
+> **🔑 Auth (Keycloak) → Get Token** (password grant contra Keycloak, usuario `admin`/`admin123`): el
+> script guarda `{{access_token}}` y el resto de requests lo heredan como `Bearer`. Para ver el
+> *ownership por usuario*, cambia las variables `username`/`password` a `cliente1`/`demo123` o
+> `conductor1`/`demo123` y re-ejecuta Get Token. Endpoints públicos (sin token): `GET /`, `GET /health`
+> y `POST /api/pagos/webhook/mercadopago`.
 
 ### Auth (Keycloak / OIDC)
 

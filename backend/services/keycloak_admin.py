@@ -25,6 +25,13 @@ _TIMEOUT = 10.0
 _token_cache: Dict[str, Any] = {"token": None, "expira": 0.0}
 
 
+class UsuarioAusenteEnKeycloak(Exception):
+    """El usuario referenciado ya no existe en Keycloak (sub obsoleto o cuenta borrada).
+
+    Permite a los llamadores distinguir "la cuenta no está" (ignorable al borrar, o
+    reparable) de "Keycloak no responde" (que sí es un 503)."""
+
+
 def _base() -> str:
     return settings.KEYCLOAK_INTERNAL_URL.rstrip("/")
 

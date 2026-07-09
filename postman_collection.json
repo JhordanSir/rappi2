@@ -1,0 +1,3875 @@
+{
+  "info": {
+    "name": "Rappi2 API (Keycloak OIDC)",
+    "description": "Colección completa de la API Rappi2 (FastAPI + PostgreSQL + MongoDB), autenticada con **Keycloak (OAuth 2.0 / OIDC)**.\n\n## Uso rápido\n1. Levanta el stack: `docker compose up -d` (espera a Keycloak y a la API).\n2. Ejecuta **🔑 Auth (Keycloak) → Get Token**. Guarda `{{access_token}}` automáticamente.\n3. Cualquier otro request usa el Bearer heredado de la colección.\n\n## Variables\n- `base_url` (API): `http://localhost:8000`\n- `keycloak_url`: `http://localhost:8080` · `realm`: `rappi2` · `client_id`: `rappi2-frontend`\n- `username`/`password`: `admin`/`admin123` (Admin). Prueba también `cliente1`/`demo123` o `conductor1`/`demo123` para ver el ownership por usuario.\n- `access_token`/`refresh_token`: se llenan al hacer Get Token.\n\n## Endpoints públicos (sin Bearer)\n`GET /`, `GET /health`, `POST /api/pagos/webhook/mercadopago`. El resto exige `Bearer`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "keycloak_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "realm",
+      "value": "rappi2",
+      "type": "string"
+    },
+    {
+      "key": "client_id",
+      "value": "rappi2-frontend",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "admin",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "admin123",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🔑 Auth (Keycloak)",
+      "description": "El login/registro/refresh/logout los gestiona **Keycloak** (OIDC), no el backend. Ejecuta **Get Token** una vez: hace el *password grant* contra Keycloak y guarda `{{access_token}}` automáticamente; los demás requests lo heredan como `Bearer`.\n\nPara probar el **ownership por usuario / roles**, cambia las variables `username`/`password` a `cliente1`/`demo123` o `conductor1`/`demo123` y vuelve a ejecutar Get Token.",
+      "item": [
+        {
+          "name": "Get Token (password grant)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    pm.collectionVariables.set('access_token', data.access_token);",
+                  "    if (data.refresh_token) pm.collectionVariables.set('refresh_token', data.refresh_token);",
+                  "    console.log('Token de Keycloak guardado en {{access_token}}');",
+                  "} else {",
+                  "    console.log('Login fallido:', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{client_id}}"
+                },
+                {
+                  "key": "username",
+                  "value": "{{username}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token",
+              "host": [
+                "{{keycloak_url}}"
+              ],
+              "path": [
+                "realms",
+                "{{realm}}",
+                "protocol",
+                "openid-connect",
+                "token"
+              ]
+            },
+            "description": "Intercambia usuario/clave por un access token RS256 emitido por Keycloak (cliente público con Direct Access Grants). El test guarda los tokens."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    pm.collectionVariables.set('access_token', data.access_token);",
+                  "    if (data.refresh_token) pm.collectionVariables.set('refresh_token', data.refresh_token);",
+                  "    console.log('Token de Keycloak guardado en {{access_token}}');",
+                  "} else {",
+                  "    console.log('Login fallido:', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{client_id}}"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "{{refresh_token}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token",
+              "host": [
+                "{{keycloak_url}}"
+              ],
+              "path": [
+                "realms",
+                "{{realm}}",
+                "protocol",
+                "openid-connect",
+                "token"
+              ]
+            },
+            "description": "Renueva el access token usando el refresh token guardado."
+          }
+        },
+        {
+          "name": "Get Me (perfil autenticado)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Perfil del usuario provisionado desde el token (rol + permisos para la UI)."
+          }
+        },
+        {
+          "name": "Me sin token (401 esperado)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba negativa: sin `Authorization: Bearer` el backend responde 401."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Roles y Permisos",
+      "item": [
+        {
+          "name": "Listar roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/roles/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar todos los permisos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/roles/permisos/all?rol_id=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "permisos",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "rol_id",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener permiso por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/roles/permisos/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "permisos",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear rol",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/roles/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Despachador\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Obtener rol",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/roles/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar rol",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/roles/2",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "2"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Despachador Senior\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Agregar permiso a rol",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/roles/2/permisos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "2",
+                "permisos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recurso\": \"ordenes\",\n  \"accion\": \"read\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reemplazar permisos del rol (bulk)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/roles/2/permisos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "2",
+                "permisos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permisos\": [\n    {\n      \"recurso\": \"ordenes\",\n      \"accion\": \"read\"\n    },\n    {\n      \"recurso\": \"ordenes\",\n      \"accion\": \"write\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar permiso de rol",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/roles/2/permisos/5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "2",
+                "permisos",
+                "5"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar rol",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/roles/2",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "2"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Usuarios",
+      "item": [
+        {
+          "name": "Listar usuarios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/usuarios/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "usuarios"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/usuarios/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "usuarios"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"nuevo.staff\",\n  \"email\": \"nuevo.staff@rappi2.com\",\n  \"rol_id\": 2,\n  \"password\": \"secret123\",\n  \"cliente_id\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Obtener usuario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/usuarios/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "usuarios",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar usuario",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/usuarios/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "usuarios",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"actualizado@rappi2.com\",\n  \"activo\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar usuario",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/usuarios/2",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "usuarios",
+                "2"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clientes",
+      "item": [
+        {
+          "name": "Listar clientes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Juan Perez\",\n  \"email\": \"juan@example.com\",\n  \"telefono\": \"+51999999999\",\n  \"cc_id\": \"DNI12345678\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Obtener cliente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar cliente",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"+51988888888\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar cliente",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear dirección de cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/1/direcciones",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes",
+                "1",
+                "direcciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"direccion\": \"Av. Ejemplo 123\",\n  \"distrito\": \"Miraflores\",\n  \"ciudad\": \"Lima\",\n  \"lat\": -12.1211,\n  \"lon\": -77.03,\n  \"es_principal\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Listar direcciones de cliente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/1/direcciones",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes",
+                "1",
+                "direcciones"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar dirección",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/1/direcciones/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes",
+                "1",
+                "direcciones",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"es_principal\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar dirección",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/clientes/1/direcciones/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "clientes",
+                "1",
+                "direcciones",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Órdenes",
+      "item": [
+        {
+          "name": "Listar órdenes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear orden",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cliente_id\": 1,\n  \"direccion_origen\": \"Av. Origen 100\",\n  \"distrito_origen\": \"Surco\",\n  \"lat_origen\": -12.135,\n  \"lon_origen\": -77.022,\n  \"destinos\": [\n    {\n      \"direccion\": \"Jr. Destino 200\",\n      \"distrito\": \"Miraflores\",\n      \"lat\": -12.12,\n      \"lon\": -77.03,\n      \"peso_kg\": 2.5\n    }\n  ],\n  \"nivel_servicio\": \"estandar\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Cotizar (sin crear)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/cotizar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "cotizar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat_origen\": -12.135,\n  \"lon_origen\": -77.022,\n  \"destinos\": [\n    {\n      \"lat\": -12.12,\n      \"lon\": -77.03,\n      \"peso_kg\": 2.5\n    }\n  ],\n  \"nivel_servicio\": \"express\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Obtener orden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar orden",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nivel_servicio\": \"express\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Agregar destino",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/destinos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "destinos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"direccion\": \"Jr. Nuevo 456\",\n  \"distrito\": \"Surco\",\n  \"lat\": -12.1,\n  \"lon\": -77.0,\n  \"peso_kg\": 1.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Actualizar destino",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/destinos/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "destinos",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"direccion\": \"Jr. Editado 789\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar destino",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/destinos/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "destinos",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar orden",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pagos",
+      "item": [
+        {
+          "name": "Iniciar checkout de orden",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/checkout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "checkout"
+              ]
+            },
+            "description": "Inicia el pago de una orden 'Pendiente de Pago' (MercadoPago o simulado)."
+          }
+        },
+        {
+          "name": "Simular pago (modo simulado)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/pagos/simular/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pagos",
+                "simular",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Webhook MercadoPago (público)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/pagos/webhook/mercadopago?type=payment&data.id=123456",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pagos",
+                "webhook",
+                "mercadopago"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "payment"
+                },
+                {
+                  "key": "data.id",
+                  "value": "123456"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Endpoint público que llama MercadoPago server-to-server."
+          }
+        },
+        {
+          "name": "Listar pagos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/pagos?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pagos"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Registrar pago manual (staff)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/pagos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "pagos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": 25.0,\n  \"estado\": \"Pagado\",\n  \"referencia_banco\": \"OP-0001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Listar pagos de una orden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/pagos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "pagos"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener pago",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/pagos/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pagos",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar pago",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/pagos/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pagos",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"Pagado\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar pago",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/pagos/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pagos",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Facturas",
+      "item": [
+        {
+          "name": "Listar facturas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/facturas?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "facturas"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear factura para orden",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/facturas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "facturas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ruc\": \"20123456789\",\n  \"monto\": 25.0,\n  \"url\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Listar facturas de orden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/facturas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "facturas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Validar RUC (SUNAT)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/facturas/validar-ruc/20123456789",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "facturas",
+                "validar-ruc",
+                "20123456789"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener factura",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/facturas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "facturas",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar factura",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/facturas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "facturas",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": 30.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar factura",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/facturas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "facturas",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vehículos",
+      "item": [
+        {
+          "name": "Listar vehículos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/vehiculos/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "vehiculos"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear vehículo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/vehiculos/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "vehiculos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"placa\": \"AQP-101\",\n  \"tipo\": \"Moto\",\n  \"capacidad_kg\": 50,\n  \"largo_cm\": 40,\n  \"ancho_cm\": 40,\n  \"alto_cm\": 40,\n  \"estado\": \"Operativo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Obtener vehículo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/vehiculos/AQP-101",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "vehiculos",
+                "AQP-101"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar vehículo",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/vehiculos/AQP-101",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "vehiculos",
+                "AQP-101"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"Mantenimiento\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar vehículo",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/vehiculos/AQP-101",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "vehiculos",
+                "AQP-101"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conductores",
+      "item": [
+        {
+          "name": "Listar conductores",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear conductor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Carlos Ruiz\",\n  \"licencia\": \"Q-12345678\",\n  \"disponibilidad\": \"Disponible\",\n  \"usuario_id\": 3,\n  \"vehiculo_placa\": \"AQP-101\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Mi ficha de conductor (/me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener conductor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar conductor",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"disponibilidad\": \"Ocupado\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Asignar vehículo a conductor",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/1/vehiculo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores",
+                "1",
+                "vehiculo"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehiculo_placa\": \"AQP-101\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar conductor",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Asignaciones",
+      "item": [
+        {
+          "name": "Listar asignaciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear asignación",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orden_ids\": [\n    1\n  ],\n  \"conductor_id\": 1,\n  \"vehiculo_placa\": \"AQP-101\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Sugerir conductor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/sugerencia?orden_ids=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "sugerencia"
+              ],
+              "query": [
+                {
+                  "key": "orden_ids",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener asignación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar asignación",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"Asignada\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Iniciar asignación",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/iniciar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "iniciar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Finalizar asignación",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/finalizar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "finalizar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": -12.12,\n  \"lon\": -77.03,\n  \"receptor\": \"María\",\n  \"nota\": \"Entregado en recepción\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reabrir asignación",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/reabrir",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "reabrir"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reabrir_entregados\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Regenerar ruta",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/regenerar-ruta",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "regenerar-ruta"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Entregar destino (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/destinos/1/entregar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "destinos",
+                "1",
+                "entregar"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "receptor",
+                  "value": "María",
+                  "type": "text"
+                },
+                {
+                  "key": "lat",
+                  "value": "-12.12",
+                  "type": "text"
+                },
+                {
+                  "key": "lon",
+                  "value": "-77.03",
+                  "type": "text"
+                },
+                {
+                  "key": "archivos",
+                  "type": "file",
+                  "src": [],
+                  "description": "Uno o más archivos"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Fallar destino (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/destinos/1/fallar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "destinos",
+                "1",
+                "fallar"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "motivo",
+                  "value": "Cliente ausente",
+                  "type": "text"
+                },
+                {
+                  "key": "lat",
+                  "value": "-12.12",
+                  "type": "text"
+                },
+                {
+                  "key": "lon",
+                  "value": "-77.03",
+                  "type": "text"
+                },
+                {
+                  "key": "archivos",
+                  "type": "file",
+                  "src": [],
+                  "description": "Uno o más archivos"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Subir prueba de entrega (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/prueba-entrega",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "prueba-entrega"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "tipo",
+                  "value": "foto",
+                  "type": "text"
+                },
+                {
+                  "key": "descripcion",
+                  "value": "Foto de entrega",
+                  "type": "text"
+                },
+                {
+                  "key": "receptor",
+                  "value": "María",
+                  "type": "text"
+                },
+                {
+                  "key": "archivos",
+                  "type": "file",
+                  "src": [],
+                  "description": "Uno o más archivos"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar pruebas de entrega",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1/prueba-entrega",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1",
+                "prueba-entrega"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Descargar archivo de prueba",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/prueba-entrega/archivos/FILE_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "prueba-entrega",
+                "archivos",
+                "FILE_ID"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar asignación",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/asignaciones/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "asignaciones",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rutas y Paradas",
+      "item": [
+        {
+          "name": "Listar rutas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear ruta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orden_id\": 1,\n  \"paradas\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Planificar ruta (OSRM)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/planificar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "planificar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orden_id\": 1,\n  \"generar_geocerca\": true,\n  \"tolerancia_metros\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Optimizar ruta",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/optimizar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "optimizar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reordenar secuencia",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/secuencia",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "secuencia"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parada_ids\": [\n    1,\n    2,\n    3\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Obtener ruta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar ruta",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"distancia_km\": 12.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar ruta",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar paradas de ruta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/paradas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "paradas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener parada",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/paradas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "paradas",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear parada",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/paradas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "paradas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"direccion\": \"Parada X\",\n  \"lat\": -12.11,\n  \"lon\": -77.01,\n  \"secuencia\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Actualizar parada",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/paradas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "paradas",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"Visitada\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Marcar parada visitada",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/paradas/1/visitar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "paradas",
+                "1",
+                "visitar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": -12.11,\n  \"lon\": -77.01\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar parada",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rutas/1/paradas/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rutas",
+                "1",
+                "paradas",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tarifa",
+      "item": [
+        {
+          "name": "Obtener configuración de tarifa",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tarifa/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tarifa"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar tarifa",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tarifa/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tarifa"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tarifa_base\": 5.0,\n  \"precio_km\": 1.2,\n  \"precio_min\": 0.15\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Incidencias",
+      "item": [
+        {
+          "name": "Listar incidencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear incidencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asignacion_id\": 1,\n  \"tipo\": \"Retraso\",\n  \"notas\": \"Tráfico intenso\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Subir evidencia (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/1/evidencias/upload",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "1",
+                "evidencias",
+                "upload"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "tipo",
+                  "value": "foto",
+                  "type": "text"
+                },
+                {
+                  "key": "descripcion",
+                  "value": "Foto del incidente",
+                  "type": "text"
+                },
+                {
+                  "key": "archivos",
+                  "type": "file",
+                  "src": [],
+                  "description": "Uno o más archivos"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar evidencias de incidencia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/1/evidencias",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "1",
+                "evidencias"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener evidencia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/evidencias/EVIDENCIA_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "evidencias",
+                "EVIDENCIA_ID"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Descargar archivo de evidencia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/evidencias/archivos/FILE_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "evidencias",
+                "archivos",
+                "FILE_ID"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar evidencia",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/evidencias/EVIDENCIA_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "evidencias",
+                "EVIDENCIA_ID"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener incidencia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar incidencia",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"severidad\": 4,\n  \"notas\": \"Escalada a supervisor\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Eliminar incidencia",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/incidencias/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "incidencias",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tracking GPS",
+      "item": [
+        {
+          "name": "Registrar ping GPS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/ping",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "ping"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asignacion_id\": 1,\n  \"conductor_id\": 1,\n  \"vehiculo_placa\": \"AQP-101\",\n  \"lon\": -77.02,\n  \"lat\": -12.12,\n  \"speed_kmh\": 30,\n  \"heading\": 90\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pings de una asignación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/asignacion/1?limit=500",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "asignacion",
+                "1"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Último ping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/asignacion/1/ultimo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "asignacion",
+                "1",
+                "ultimo"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Estadísticas de asignación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/asignacion/1/estadisticas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "asignacion",
+                "1",
+                "estadisticas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mapa de flota activa",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/flota",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "flota"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Conductores cerca de un punto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/conductores-cerca?lon=-77.02&lat=-12.12&radio_m=2000",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "conductores-cerca"
+              ],
+              "query": [
+                {
+                  "key": "lon",
+                  "value": "-77.02"
+                },
+                {
+                  "key": "lat",
+                  "value": "-12.12"
+                },
+                {
+                  "key": "radio_m",
+                  "value": "2000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Seguimiento de orden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/orden/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "orden",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Descargar evidencia de seguimiento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tracking/orden/1/evidencia/FILE_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tracking",
+                "orden",
+                "1",
+                "evidencia",
+                "FILE_ID"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Geocercas",
+      "item": [
+        {
+          "name": "Crear geocerca",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/geocercas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "geocercas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ruta_id\": 1,\n  \"tipo\": \"ruta_buffer\",\n  \"coordinates\": [\n    [\n      [\n        -77.05,\n        -12.1\n      ],\n      [\n        -77.0,\n        -12.1\n      ],\n      [\n        -77.0,\n        -12.05\n      ],\n      [\n        -77.05,\n        -12.05\n      ],\n      [\n        -77.05,\n        -12.1\n      ]\n    ]\n  ],\n  \"tolerance_m\": 50,\n  \"activa\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Listar geocercas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/geocercas?activa=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "geocercas"
+              ],
+              "query": [
+                {
+                  "key": "activa",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Geocercas que contienen un punto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/geocercas/contiene?lon=-77.02&lat=-12.07",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "geocercas",
+                "contiene"
+              ],
+              "query": [
+                {
+                  "key": "lon",
+                  "value": "-77.02"
+                },
+                {
+                  "key": "lat",
+                  "value": "-12.07"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener geocerca",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/geocercas/GEOCERCA_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "geocercas",
+                "GEOCERCA_ID"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar geocerca",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/geocercas/GEOCERCA_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "geocercas",
+                "GEOCERCA_ID"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activa\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Desactivar geocerca",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/geocercas/GEOCERCA_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "geocercas",
+                "GEOCERCA_ID"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notificaciones",
+      "item": [
+        {
+          "name": "Crear notificación",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notificaciones/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destinatario_tipo\": \"cliente\",\n  \"destinatario_id\": 1,\n  \"tipo\": \"info\",\n  \"titulo\": \"Aviso\",\n  \"mensaje\": \"Tu pedido va en camino\",\n  \"metadata\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Mis notificaciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notificaciones/mias?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones",
+                "mias"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Marcar como leída",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notificaciones/NOTIF_ID/leer",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones",
+                "NOTIF_ID",
+                "leer"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar notificación",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notificaciones/NOTIF_ID",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones",
+                "NOTIF_ID"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auditoría",
+      "item": [
+        {
+          "name": "Listar auditoría",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auditoria/?skip=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auditoria"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Resumen de auditoría",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auditoria/resumen",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auditoria",
+                "resumen"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reportes / KPIs",
+      "item": [
+        {
+          "name": "Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "dashboard"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ventas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/ventas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "ventas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Top clientes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/top-clientes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "top-clientes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Conductores",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/conductores",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "conductores"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Incidencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/incidencias",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "incidencias"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Tiempos de entrega",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/tiempos-entrega",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "tiempos-entrega"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Resumen por cliente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/cliente/1/resumen",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "cliente",
+                "1",
+                "resumen"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Operativo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/operativo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "operativo"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Asignación completo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/asignacion/1/completo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "asignacion",
+                "1",
+                "completo"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Evidencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/evidencias",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "evidencias"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Notificaciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/notificaciones",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "notificaciones"
+              ]
+            }
+          }
+        },
+        {
+          "name": "SLA de entregas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/sla-entregas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "sla-entregas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eficiencia de conductores",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/conductores/eficiencia",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "conductores",
+                "eficiencia"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Distribución geográfica",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reportes/distribucion-geografica",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reportes",
+                "distribucion-geografica"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Calificaciones",
+      "item": [
+        {
+          "name": "Calificar orden",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/calificacion",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "calificacion"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"puntaje\": 5,\n  \"comentario\": \"Excelente servicio\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Obtener calificación de orden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ordenes/1/calificacion",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ordenes",
+                "1",
+                "calificacion"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Rating de conductor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conductores/1/calificaciones",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "conductores",
+                "1",
+                "calificaciones"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Geo",
+      "item": [
+        {
+          "name": "Geocodificación inversa",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/geo/reverse?lat=-12.12&lon=-77.03",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "geo",
+                "reverse"
+              ],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "-12.12"
+                },
+                {
+                  "key": "lon",
+                  "value": "-77.03"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Realtime (SSE)",
+      "item": [
+        {
+          "name": "Stream de eventos (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/realtime/stream?token={{access_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "realtime",
+                "stream"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Server-Sent Events. EventSource no envía cabeceras: el token va como query param. En Postman es un stream de larga duración (no un request normal)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sistema (público)",
+      "item": [
+        {
+          "name": "Root / metadatos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": []
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Healthcheck",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
