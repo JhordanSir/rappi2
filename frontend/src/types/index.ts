@@ -213,7 +213,6 @@ export interface Incidencia {
   severidad: number;
   origen: "chofer" | "automatica" | "admin";
   notas?: string | null;
-  evidencia_url?: string | null;
   fecha: string;
 }
 
