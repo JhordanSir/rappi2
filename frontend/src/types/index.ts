@@ -76,10 +76,7 @@ export interface Orden {
   lon_destino?: number | null;
   total?: number | null;
   fecha_creacion: string;
-  peso_kg?: number | null;
-  largo_cm?: number | null;
-  ancho_cm?: number | null;
-  alto_cm?: number | null;
+  // El paquete (peso/dimensiones) vive por destino (ver Destino), no a nivel de orden.
   nivel_servicio?: NivelServicio;
   programado_para?: string | null;
   ajuste_monto?: number | null;

@@ -91,7 +91,10 @@ class OrdenUpdate(BaseModel):
     ajuste_motivo: Optional[str] = None
 
 
-class OrdenResponse(PaqueteFields):
+class OrdenResponse(BaseModel):
+    # Los datos del paquete (peso/dimensiones) viven por destino (ver DestinoOut), no a
+    # nivel de orden: las columnas peso_kg/largo_cm/… de `ordenes` son legacy (pre-multidestino)
+    # y no se exponen aquí para no devolver nulls confusos.
     id: int
     cliente_id: int
     estado: EstadoOrden
