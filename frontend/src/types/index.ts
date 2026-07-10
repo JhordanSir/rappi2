@@ -77,6 +77,9 @@ export interface Orden {
   total?: number | null;
   fecha_creacion: string;
   // El paquete (peso/dimensiones) vive por destino (ver Destino), no a nivel de orden.
+  // A nivel de orden solo se expone el agregado derivado del backend.
+  peso_total_kg?: number | null;
+  volumen_total_cm3?: number | null;
   nivel_servicio?: NivelServicio;
   programado_para?: string | null;
   ajuste_monto?: number | null;

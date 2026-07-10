@@ -51,7 +51,13 @@ async def test_cliente_crea_orden_sin_cliente_id(client, factoria, db, monkeypat
         app.dependency_overrides[get_current_user] = previo
 
     assert r.status_code == 201, r.text
-    assert r.json()["cliente_id"] == ficha.id  # forzado desde el token, no del payload
+    body = r.json()
+    assert body["cliente_id"] == ficha.id  # forzado desde el token, no del payload
+    # El paquete físico vive en el destino; la orden expone el AGREGADO derivado y ya no
+    # el campo legacy a nivel de orden.
+    assert body["destinos"][0]["peso_kg"] == 3
+    assert float(body["peso_total_kg"]) == 3.0
+    assert "peso_kg" not in body
 
 
 async def test_staff_sin_cliente_id_da_400(client, monkeypatch):

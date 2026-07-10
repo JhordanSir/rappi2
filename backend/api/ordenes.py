@@ -200,8 +200,11 @@ async def create_orden(
         if total is not None:
             data["total"] = max(Decimal("0"), total + Decimal(str(ajuste_monto)))
 
-    # No se persisten los campos auxiliares de la lista de destinos en la fila de orden.
+    # No se persisten en la fila de orden: la lista de destinos ni el paquete legacy top-level
+    # (peso/dims ya viven en cada Destino; `_normalizar_destinos` ya los plegó arriba).
     data.pop("destinos", None)
+    for _f in ("peso_kg", "largo_cm", "ancho_cm", "alto_cm"):
+        data.pop(_f, None)
 
     es_cliente = not scope.ve_todo() and scope.cliente_id is not None
     estado_inicial = "Pendiente de Pago" if es_cliente else "Pendiente"
@@ -348,10 +351,12 @@ async def update_orden(
 
     # Recalcular el precio (suma de tramos sobre los destinos vigentes) si cambió algo
     # que lo afecta o si el staff aplica/ajusta el override.
+    # El paquete ya no se edita a nivel de orden (se hace por destino y ese endpoint recotiza);
+    # aquí solo disparan recálculo los cambios de origen/destino-legacy/nivel/programación.
     afecta_precio = any(
         c in update for c in (
             "lat_origen", "lon_origen", "lat_destino", "lon_destino",
-            "peso_kg", "largo_cm", "ancho_cm", "alto_cm", "nivel_servicio", "programado_para",
+            "nivel_servicio", "programado_para",
         )
     )
     if afecta_precio or (scope.ve_todo() and ajuste_monto is not None):

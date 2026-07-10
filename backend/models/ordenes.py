@@ -1,7 +1,11 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from decimal import Decimal
+
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func, select
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 
 from core.database import Base
+from models.destinos import Destino
 
 
 class Orden(Base):
@@ -21,11 +25,8 @@ class Orden(Base):
     fecha_creacion = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     total = Column(Numeric(10, 2), nullable=True)  # calculado por el servidor (no por el cliente)
 
-    # Datos del paquete (alimentan el cálculo de precio).
-    peso_kg = Column(Numeric(8, 2), nullable=True)
-    largo_cm = Column(Numeric(7, 1), nullable=True)
-    ancho_cm = Column(Numeric(7, 1), nullable=True)
-    alto_cm = Column(Numeric(7, 1), nullable=True)
+    # El paquete (peso/dimensiones) vive por destino (models/destinos.py), NO aquí: el peso/volumen
+    # de la orden se derivan de los destinos (ver peso_total_kg / volumen_total_cm3 abajo).
 
     # Nivel de servicio (estandar/express/urgente) y programación (null = inmediato).
     nivel_servicio = Column(String(20), default="estandar", nullable=False)
@@ -54,6 +55,29 @@ class Orden(Base):
     destinos = relationship("Destino", back_populates="orden", cascade="all, delete-orphan", order_by="Destino.secuencia")
     rutas = relationship("RutaPlanificada", back_populates="orden", cascade="all, delete-orphan")
     calificacion = relationship("Calificacion", back_populates="orden", uselist=False, cascade="all, delete-orphan")
+
+    # --- Agregados FÍSICOS del paquete: se calculan sobre los destinos (fuente de verdad),
+    # nunca se persisten (evita la desincronización del modelo redundante anterior). El lado
+    # Python requiere `destinos` cargado (usar selectinload); el lado .expression permite
+    # filtrar/ordenar por peso en SQL sin instanciar. ---
+    @hybrid_property
+    def peso_total_kg(self) -> Decimal:
+        return sum((d.peso_kg or Decimal("0") for d in self.destinos), Decimal("0"))
+
+    @peso_total_kg.expression
+    def peso_total_kg(cls):
+        return (
+            select(func.coalesce(func.sum(Destino.peso_kg), 0))
+            .where(Destino.orden_id == cls.id)
+            .scalar_subquery()
+        )
+
+    @hybrid_property
+    def volumen_total_cm3(self) -> Decimal:
+        return sum(
+            ((d.largo_cm or 0) * (d.ancho_cm or 0) * (d.alto_cm or 0) for d in self.destinos),
+            Decimal("0"),
+        )
 
 
 class Pago(Base):

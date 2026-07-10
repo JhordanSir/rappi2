@@ -18,9 +18,7 @@ class Usuario(Base):
     fecha_registro = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     # Identidad federada. keycloak_sub es el `sub` estable del usuario en Keycloak y la
     # clave de vinculación principal; auth_provider distingue el origen (keycloak/local).
-    # google_sub se conserva por compatibilidad de datos heredados (ya no se usa para login).
     keycloak_sub = Column(String(255), unique=True, nullable=True, index=True)
-    google_sub = Column(String(255), unique=True, nullable=True, index=True)
     auth_provider = Column(String(20), default="local", nullable=False)
     avatar_url = Column(Text, nullable=True)
 

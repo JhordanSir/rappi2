@@ -10,11 +10,24 @@ NivelServicio = Literal["estandar", "express", "urgente"]
 
 
 class PaqueteFields(BaseModel):
-    """Datos del paquete que alimentan el cálculo de precio."""
+    """Datos del paquete que alimentan el cálculo de precio (viven por destino)."""
     peso_kg: Optional[float] = None
     largo_cm: Optional[float] = None
     ancho_cm: Optional[float] = None
     alto_cm: Optional[float] = None
+
+
+class PaqueteFieldsDeprecated(BaseModel):
+    """Paquete a nivel de orden: DEPRECATED. El paquete real vive en `destinos[].*`.
+
+    Se mantiene solo por compatibilidad con POST/cotizaciones legacy de un único destino: si
+    llegan sin `destinos`, se pliegan a un destino (ver `_normalizar_destinos`). No usar en
+    integraciones nuevas.
+    """
+    peso_kg: Optional[float] = Field(None, deprecated=True, description="DEPRECATED: usa destinos[].peso_kg")
+    largo_cm: Optional[float] = Field(None, deprecated=True, description="DEPRECATED: usa destinos[].largo_cm")
+    ancho_cm: Optional[float] = Field(None, deprecated=True, description="DEPRECATED: usa destinos[].ancho_cm")
+    alto_cm: Optional[float] = Field(None, deprecated=True, description="DEPRECATED: usa destinos[].alto_cm")
 
 
 class DestinoIn(PaqueteFields):
@@ -48,7 +61,7 @@ class DestinoOut(PaqueteFields):
     model_config = ConfigDict(from_attributes=True)
 
 
-class OrdenCreate(PaqueteFields):
+class OrdenCreate(PaqueteFieldsDeprecated):
     # Opcional: el rol Cliente NO lo envía (el endpoint lo fuerza desde su token);
     # el staff sí debe indicarlo (si falta/es inválido → 400 en create_orden).
     # Con `int` obligatorio, Pydantic respondía 422 a todo cliente antes de llegar
@@ -81,10 +94,7 @@ class OrdenUpdate(BaseModel):
     distrito_destino: Optional[str] = None
     lat_destino: Optional[float] = lat_field()
     lon_destino: Optional[float] = lon_field()
-    peso_kg: Optional[float] = None
-    largo_cm: Optional[float] = None
-    ancho_cm: Optional[float] = None
-    alto_cm: Optional[float] = None
+    # El paquete NO se edita a nivel de orden: usar PATCH /ordenes/{id}/destinos/{destino_id}.
     nivel_servicio: Optional[NivelServicio] = None
     programado_para: Optional[datetime] = None
     ajuste_monto: Optional[Decimal] = None
@@ -92,9 +102,9 @@ class OrdenUpdate(BaseModel):
 
 
 class OrdenResponse(BaseModel):
-    # Los datos del paquete (peso/dimensiones) viven por destino (ver DestinoOut), no a
-    # nivel de orden: las columnas peso_kg/largo_cm/… de `ordenes` son legacy (pre-multidestino)
-    # y no se exponen aquí para no devolver nulls confusos.
+    # El paquete físico (peso/dimensiones) vive por destino (ver DestinoOut). A nivel de orden
+    # solo se expone el AGREGADO derivado `peso_total_kg` (calculado con @hybrid_property sobre
+    # los destinos; no persistido). El peso cobrable (volumétrico) se expone en la cotización.
     id: int
     cliente_id: int
     estado: EstadoOrden
@@ -114,11 +124,14 @@ class OrdenResponse(BaseModel):
     ajuste_motivo: Optional[str] = None
     ajuste_por: Optional[int] = None
     destinos: List[DestinoOut] = []
+    # Agregados derivados de los destinos (@hybrid_property en el modelo Orden).
+    peso_total_kg: Optional[Decimal] = None
+    volumen_total_cm3: Optional[Decimal] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class CotizarRequest(PaqueteFields):
+class CotizarRequest(PaqueteFieldsDeprecated):
     """Cotización sin crear orden. Requiere origen; uno o varios destinos."""
     lat_origen: float = Field(..., ge=-90, le=90)
     lon_origen: float = Field(..., ge=-180, le=180)
