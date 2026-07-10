@@ -66,7 +66,6 @@ async def create_incidencia(
         asignacion_id=payload.asignacion_id,
         tipo=payload.tipo,
         notas=payload.notas,
-        evidencia_url=payload.evidencia_url,
         severidad=derivar_severidad(payload.tipo),
         origen="admin" if scope.ve_todo() else "chofer",
     )

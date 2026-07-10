@@ -10,7 +10,6 @@ class IncidenciaCreate(BaseModel):
     asignacion_id: int
     tipo: str
     notas: Optional[str] = None
-    evidencia_url: Optional[str] = None
 
 
 class IncidenciaUpdate(BaseModel):
@@ -18,7 +17,6 @@ class IncidenciaUpdate(BaseModel):
     tipo: Optional[str] = None
     severidad: Optional[int] = Field(None, ge=1, le=5)
     notas: Optional[str] = None
-    evidencia_url: Optional[str] = None
 
 
 class IncidenciaResponse(BaseModel):
@@ -28,7 +26,6 @@ class IncidenciaResponse(BaseModel):
     severidad: int
     origen: str
     notas: Optional[str] = None
-    evidencia_url: Optional[str] = None
     fecha: datetime
 
     model_config = ConfigDict(from_attributes=True)

@@ -16,7 +16,6 @@ class Incidencia(Base):
     # Quién originó la incidencia: reporte del chofer, automática (desvío/retraso) o el admin.
     origen = Column(String(20), default="chofer", nullable=False)
     notas = Column(Text, nullable=True)
-    evidencia_url = Column(Text, nullable=True)
 
     __table_args__ = (
         CheckConstraint("severidad BETWEEN 1 AND 5", name="severidad_rango"),
