@@ -8,6 +8,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-rappi2}
+    # Puerto publicado al HOST para conexión remota (pgAdmin/DBeaver). El contenedor
+    # sigue escuchando en 5432 internamente (la app lo alcanza por `postgres:5432`).
+    # ⚠️ Esto expone Postgres a la IP pública del servidor: usa credenciales FUERTES y
+    # restringe por firewall a tu IP. Cambia el puerto host con POSTGRES_PORT_HOST.
+    ports:
+      - "${POSTGRES_PORT_HOST:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,6 +28,11 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-admin}
+    # Puerto publicado al HOST para conexión remota (Compass). El contenedor sigue en
+    # 27017 internamente (la app lo alcanza por `mongodb:27017`). ⚠️ Expone Mongo a la IP
+    # pública: credenciales FUERTES + firewall. Cambia el puerto host con MONGO_PORT_HOST.
+    ports:
+      - "${MONGO_PORT_HOST:-27017}:27017"
     volumes:
       - mongodb_data:/data/db
     healthcheck:

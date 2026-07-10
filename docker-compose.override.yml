@@ -1,14 +1,8 @@
 # Desarrollo (se carga automáticamente con `docker compose up`).
-# Monta el código fuente para recarga en caliente y publica los puertos de BD.
+# Monta el código fuente para recarga en caliente.
+# Los puertos de BD ahora se publican desde el compose base (docker-compose.yml) con
+# POSTGRES_PORT_HOST / MONGO_PORT_HOST (default 5432 / 27017 si no se definen en .env).
 services:
-  postgres:
-    ports:
-      - "5432:5432"
-
-  mongodb:
-    ports:
-      - "27017:27017"
-
   api:
     # Igual que el comando base, pero además:
     #  - seed_if_empty: puebla datos demo en el primer arranque (idempotente; no

@@ -5,7 +5,10 @@ incidencias vive en GridFS/Mongo (endpoints /incidencias/{id}/evidencias/*). La 
 aceptaba, guardaba y devolvía, pero ningún consumidor la leía (el frontend solo la declaraba en
 el tipo). Se elimina.
 
-Revision ID: 0017_drop_incidencia_evidencia_url
+NOTA: el revision id se mantiene <= 32 caracteres porque `alembic_version.version_num` es
+VARCHAR(32); ids más largos fallan al escribir la versión (StringDataRightTruncationError).
+
+Revision ID: 0017_drop_inc_evidencia_url
 Revises: 0016_drop_orden_paquete
 Create Date: 2026-07-10 02:00:00.000000
 """
@@ -14,7 +17,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0017_drop_incidencia_evidencia_url"
+revision: str = "0017_drop_inc_evidencia_url"
 down_revision: Union[str, None] = "0016_drop_orden_paquete"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
