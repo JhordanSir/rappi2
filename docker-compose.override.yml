@@ -1,7 +1,8 @@
 # Desarrollo (se carga automáticamente con `docker compose up`).
 # Monta el código fuente para recarga en caliente.
-# Los puertos de BD ahora se publican desde el compose base (docker-compose.yml) con
-# POSTGRES_PORT_HOST / MONGO_PORT_HOST (default 5432 / 27017 si no se definen en .env).
+# Las BD NO publican puerto al host (por seguridad). Para inspeccionar datos en dev usa
+# `docker compose exec postgres psql ...` / `docker compose exec mongodb mongosh ...`.
+# Si necesitas un GUI local, añade tu propio override con `ports: ["127.0.0.1:5432:5432"]`.
 services:
   api:
     # Igual que el comando base, pero además:
