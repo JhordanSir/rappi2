@@ -60,9 +60,15 @@ class Orden(Base):
     # nunca se persisten (evita la desincronización del modelo redundante anterior). El lado
     # Python requiere `destinos` cargado (usar selectinload); el lado .expression permite
     # filtrar/ordenar por peso en SQL sin instanciar. ---
+    # Nota: los valores pueden venir como Decimal (cargados de la BD) o como float (recién
+    # asignados desde un payload Pydantic, con expire_on_commit=False). Se normaliza cada uno
+    # a Decimal con Decimal(str(...)) para no mezclar tipos al sumar (igual que pricing_service).
     @hybrid_property
     def peso_total_kg(self) -> Decimal:
-        return sum((d.peso_kg or Decimal("0") for d in self.destinos), Decimal("0"))
+        return sum(
+            (Decimal(str(d.peso_kg)) for d in self.destinos if d.peso_kg is not None),
+            Decimal("0"),
+        )
 
     @peso_total_kg.expression
     def peso_total_kg(cls):
@@ -74,10 +80,11 @@ class Orden(Base):
 
     @hybrid_property
     def volumen_total_cm3(self) -> Decimal:
-        return sum(
-            ((d.largo_cm or 0) * (d.ancho_cm or 0) * (d.alto_cm or 0) for d in self.destinos),
-            Decimal("0"),
-        )
+        total = Decimal("0")
+        for d in self.destinos:
+            if d.largo_cm is not None and d.ancho_cm is not None and d.alto_cm is not None:
+                total += Decimal(str(d.largo_cm)) * Decimal(str(d.ancho_cm)) * Decimal(str(d.alto_cm))
+        return total
 
 
 class Pago(Base):
